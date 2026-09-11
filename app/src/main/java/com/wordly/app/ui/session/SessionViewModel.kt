@@ -7,6 +7,7 @@ import com.wordly.app.AppContainer
 import com.wordly.app.data.entity.Word
 import com.wordly.app.domain.LearningEngine
 import com.wordly.app.domain.model.Direction
+import com.wordly.app.domain.model.ReviewScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -36,8 +37,7 @@ class SessionViewModel(
     private val direction: Direction =
         runCatching { Direction.valueOf(handle["dir"] ?: "") }.getOrDefault(Direction.EN_TO_RU)
     private val shuffle: Boolean = (handle.get<String>("shuffle")).toBoolean()
-    private val window: Int = handle.get<String>("window")?.toIntOrNull() ?: -1
-    private val fromStart: Boolean = (handle.get<String>("fromStart")).toBoolean()
+    private val scope: ReviewScope = decodeScope(handle)
     private val batchSize: Int = handle.get<String>("batch")?.toIntOrNull() ?: 20
     private val seed: Long = handle.get<String>("seed")?.toLongOrNull() ?: 0L
 
@@ -52,12 +52,7 @@ class SessionViewModel(
         val cards = if (mode == "new") {
             LearningEngine.newBatch(all, benchmark, batchSize)
         } else {
-            val slice = LearningEngine.learnedWindow(
-                all = all,
-                benchmark = benchmark,
-                window = window.takeIf { it >= 0 },
-                fromStart = fromStart,
-            )
+            val slice = LearningEngine.learnedSlice(all = all, benchmark = benchmark, scope = scope)
             LearningEngine.orderSession(slice, shuffle, seed)
         }
         _state.update {
@@ -104,3 +99,17 @@ class SessionViewModel(
         it.copy(index = 0, revealed = false, finished = false, committed = false)
     }
 }
+
+/** Reconstructs a [ReviewScope] from the primitive `scope*` nav args written by `Routes.session()`. */
+private fun decodeScope(handle: SavedStateHandle): ReviewScope =
+    when (handle.get<String>("scopeType")) {
+        "window" -> ReviewScope.Window(
+            count = handle.get<String>("scopeCount")?.toIntOrNull() ?: 0,
+            fromStart = (handle.get<String>("scopeFromStart")).toBoolean(),
+        )
+        "range" -> ReviewScope.Range(
+            from = handle.get<String>("scopeFrom")?.toIntOrNull() ?: 1,
+            to = handle.get<String>("scopeTo")?.toIntOrNull() ?: 1,
+        )
+        else -> ReviewScope.All
+    }

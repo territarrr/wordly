@@ -44,7 +44,9 @@ pure, Android-free Kotlin object operating on plain `List<Word>` — this is del
 core learning behavior is unit-testable without Robolectric/instrumentation
 (`app/src/test/java/com/wordly/app/domain/LearningEngineTest.kt`):
 
-- `learnedWindow(all, benchmark, window)` — the review slice (all learned, or the last N).
+- `learnedSlice(all, benchmark, scope)` — the review slice, narrowed by a `ReviewScope`
+  (`domain/model/ReviewScope.kt`): `All`, `Window(count, fromStart)` (last/first N), or
+  `Range(from, to)` (1-indexed inclusive positions among learned words, clamped to bounds).
 - `newBatch(all, benchmark, batchSize)` — the next batch to learn, oldest-first.
 - `orderSession(slice, shuffle, seed)` — presentation order (seeded shuffle or addition order).
 - `nextBenchmark(batch, current)` — the benchmark after a confirmed batch.
@@ -59,8 +61,8 @@ windowing as SQL — keep it that way so the selection logic stays testable in o
 `SessionScreen`/`SessionViewModel` (`ui/session/`) drive both modes from one
 `SessionConfig` (`domain/model/SessionModels.kt`):
 
-- **Review** (`SessionConfig.Review`): learned words, optionally shuffled, optionally
-  windowed to "last N". On completing the last card, `Notifier.reviewFinished()` posts a
+- **Review** (`SessionConfig.Review`): learned words, optionally shuffled, narrowed by a
+  `ReviewScope`. On completing the last card, `Notifier.reviewFinished()` posts a
   notification — the benchmark is untouched.
 - **NewWords** (`SessionConfig.NewWords`): the next batch after the benchmark. On finishing,
   the UI asks for confirmation: "Да" advances the benchmark to the batch's max
@@ -68,11 +70,13 @@ windowing as SQL — keep it that way so the selection logic stays testable in o
   the benchmark untouched.
 
 `SessionConfig` is serialized into primitive nav-route query params by `ui/nav/Routes.kt`
-(`session?mode=...&dir=...&shuffle=...&window=...&batch=...&seed=...`) and reconstructed
-from `SavedStateHandle` in `SessionViewModel` — there is no shared/parcelable nav arg type.
-If you add a new session parameter, it needs updating in three places: `Routes.session()`,
-the `navArgument` list in `WordlyNavHost`, and the `SavedStateHandle` reads in
-`SessionViewModel`'s constructor properties.
+(`session?mode=...&dir=...&shuffle=...&scopeType=...&scopeCount=...&scopeFromStart=...`
+`&scopeFrom=...&scopeTo=...&batch=...&seed=...` — `ReviewScope` collapses to
+`scopeType ∈ {all, window, range}` plus whichever of the other fields that type uses) and
+reconstructed from `SavedStateHandle` in `SessionViewModel`'s `decodeScope()` — there is no
+shared/parcelable nav arg type. If you add a new session parameter, it needs updating in
+three places: `Routes.session()`/`encodeScope()`, the `navArgument` list in
+`WordlyNavHost`, and `SessionViewModel`'s `decodeScope()`/constructor properties.
 
 ### Dependency wiring
 

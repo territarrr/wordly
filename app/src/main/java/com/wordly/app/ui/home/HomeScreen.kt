@@ -5,6 +5,7 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -42,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.wordly.app.domain.model.Direction
+import com.wordly.app.domain.model.ReviewScope
 import com.wordly.app.domain.model.SessionConfig
 import com.wordly.app.ui.common.container
 
@@ -67,6 +69,9 @@ fun HomeScreen(
     var windowFromStart by remember { mutableStateOf(false) } // ignored when windowChoice == null
     var windowCustom by remember { mutableStateOf(false) }
     var windowCustomText by remember { mutableStateOf("") }
+    var rangeMode by remember { mutableStateOf(false) }
+    var rangeFromText by remember { mutableStateOf("") }
+    var rangeToText by remember { mutableStateOf("") }
     var batchChoice by remember { mutableStateOf(20) }
     var batchCustom by remember { mutableStateOf(false) }
     var batchCustomText by remember { mutableStateOf("") }
@@ -122,18 +127,25 @@ fun HomeScreen(
                 )
             }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                WindowChip("Все", windowChoice == null && !windowCustom) {
-                    windowChoice = null; windowCustom = false
+                WindowChip("Все", windowChoice == null && !windowCustom && !rangeMode) {
+                    windowChoice = null; windowCustom = false; rangeMode = false
                 }
                 listOf(20, 50, 100).forEach { n ->
-                    WindowChip("Первые $n", windowChoice == n && windowFromStart && !windowCustom) {
-                        windowChoice = n; windowFromStart = true; windowCustom = false
+                    WindowChip(
+                        "Первые $n",
+                        windowChoice == n && windowFromStart && !windowCustom && !rangeMode,
+                    ) {
+                        windowChoice = n; windowFromStart = true; windowCustom = false; rangeMode = false
                     }
-                    WindowChip("Последние $n", windowChoice == n && !windowFromStart && !windowCustom) {
-                        windowChoice = n; windowFromStart = false; windowCustom = false
+                    WindowChip(
+                        "Последние $n",
+                        windowChoice == n && !windowFromStart && !windowCustom && !rangeMode,
+                    ) {
+                        windowChoice = n; windowFromStart = false; windowCustom = false; rangeMode = false
                     }
                 }
-                WindowChip("Своё", windowCustom) { windowCustom = true }
+                WindowChip("Своё", windowCustom) { windowCustom = true; rangeMode = false }
+                WindowChip("Диапазон", rangeMode) { rangeMode = true; windowCustom = false }
             }
             if (windowCustom) {
                 NumberField("Сколько слов", windowCustomText) { windowCustomText = it }
@@ -142,18 +154,40 @@ fun HomeScreen(
                     WindowChip("С конца (последние)", !windowFromStart) { windowFromStart = false }
                 }
             }
+            if (rangeMode) {
+                Text(
+                    "Позиция среди выученных слов — 1 это самое первое выученное",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(Modifier.weight(1f)) {
+                        NumberField("От", rangeFromText) { rangeFromText = it }
+                    }
+                    Box(Modifier.weight(1f)) {
+                        NumberField("До", rangeToText) { rangeToText = it }
+                    }
+                }
+            }
             Button(
                 onClick = {
-                    val window = when {
-                        windowCustom -> windowCustomText.toIntOrNull()?.takeIf { it > 0 }
-                        else -> windowChoice
+                    val scope = when {
+                        rangeMode -> {
+                            val from = rangeFromText.toIntOrNull()?.takeIf { it > 0 } ?: 1
+                            val to = rangeToText.toIntOrNull()?.takeIf { it > 0 } ?: from
+                            ReviewScope.Range(from, to)
+                        }
+                        windowCustom -> {
+                            val count = windowCustomText.toIntOrNull()?.takeIf { it > 0 }
+                            if (count == null) ReviewScope.All else ReviewScope.Window(count, windowFromStart)
+                        }
+                        windowChoice != null -> ReviewScope.Window(windowChoice!!, windowFromStart)
+                        else -> ReviewScope.All
                     }
                     onStartSession(
                         SessionConfig.Review(
                             direction = direction,
                             shuffle = shuffle,
-                            window = window,
-                            fromStart = windowFromStart,
+                            scope = scope,
                             seed = System.currentTimeMillis(),
                         ),
                     )

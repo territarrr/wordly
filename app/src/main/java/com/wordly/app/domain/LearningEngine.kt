@@ -1,6 +1,7 @@
 package com.wordly.app.domain
 
 import com.wordly.app.data.entity.Word
+import com.wordly.app.domain.model.ReviewScope
 import kotlin.random.Random
 
 /**
@@ -25,17 +26,26 @@ object LearningEngine {
 
     /**
      * The learned slice to review: words with `orderIndex <= benchmark`, oldest first,
-     * optionally trimmed to [window] of them (`null` = all learned) — either the very first
-     * ones learned ([fromStart] true) or the most recently learned ([fromStart] false, the
-     * default), so you can go back to the beginning as easily as staying near the benchmark.
+     * narrowed by [scope] — see [ReviewScope] for what each variant means. [ReviewScope.Range]
+     * positions are 1-indexed among the learned words and clamped to bounds rather than
+     * producing an empty result for a slightly-too-large `to`.
      */
-    fun learnedWindow(all: List<Word>, benchmark: Long, window: Int?, fromStart: Boolean = false): List<Word> {
+    fun learnedSlice(all: List<Word>, benchmark: Long, scope: ReviewScope): List<Word> {
         val learned = all.filter { it.orderIndex <= benchmark }.sortedBy { it.orderIndex }
-        return when {
-            window == null || window >= learned.size -> learned
-            window <= 0 -> emptyList()
-            fromStart -> learned.take(window)
-            else -> learned.takeLast(window)
+        if (learned.isEmpty()) return emptyList()
+        return when (scope) {
+            ReviewScope.All -> learned
+            is ReviewScope.Window -> when {
+                scope.count <= 0 -> emptyList()
+                scope.count >= learned.size -> learned
+                scope.fromStart -> learned.take(scope.count)
+                else -> learned.takeLast(scope.count)
+            }
+            is ReviewScope.Range -> {
+                val from = scope.from.coerceIn(1, learned.size)
+                val to = scope.to.coerceIn(from, learned.size)
+                learned.subList(from - 1, to).toList()
+            }
         }
     }
 

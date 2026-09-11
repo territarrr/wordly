@@ -16,16 +16,13 @@ sealed interface SessionConfig {
     /**
      * Repeat words that are already learned (at or before the benchmark).
      *
-     * @param window number of learned words to include, or `null` for all.
-     * @param fromStart when [window] is set, take the first/earliest-learned [window] words
-     *   instead of the most-recently-learned ones. Ignored when [window] is `null`.
+     * @param scope which learned words to include — see [ReviewScope].
      * @param shuffle randomise card order (deterministically via [seed]).
      */
     data class Review(
         override val direction: Direction,
         val shuffle: Boolean,
-        val window: Int?,
-        val fromStart: Boolean = false,
+        val scope: ReviewScope,
         val seed: Long,
     ) : SessionConfig
 
