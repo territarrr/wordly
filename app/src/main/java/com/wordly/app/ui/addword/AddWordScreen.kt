@@ -15,10 +15,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -131,9 +131,11 @@ fun AddWordScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
             if (state.translationOptions.isNotEmpty()) {
+                val selected = splitTranslations(state.translation)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     state.translationOptions.forEach { option ->
-                        AssistChip(
+                        FilterChip(
+                            selected = option in selected,
                             onClick = { viewModel.pickTranslation(option) },
                             label = { Text(option) },
                         )

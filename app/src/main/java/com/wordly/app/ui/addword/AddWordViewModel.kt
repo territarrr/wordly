@@ -63,9 +63,16 @@ class AddWordViewModel(
 
     fun onTranscription(value: String) = _state.update { it.copy(transcription = value) }
 
-    /** Picks one of the fetched [AddWordUiState.translationOptions] into the translation field. */
-    fun pickTranslation(option: String) =
-        _state.update { it.copy(translation = option, translationError = null) }
+    /**
+     * Toggles one of the fetched [AddWordUiState.translationOptions] in/out of the (comma
+     * -separated) translation field — several variants can be kept side by side, and the
+     * field stays freely editable to add ones of your own alongside them.
+     */
+    fun pickTranslation(option: String) = _state.update { current ->
+        val selected = splitTranslations(current.translation)
+        val updated = if (option in selected) selected - option else selected + option
+        current.copy(translation = updated.joinToString(", "), translationError = null)
+    }
 
     fun previewAudio() {
         val s = _state.value
@@ -151,6 +158,10 @@ class AddWordViewModel(
 
     fun consumeMessage() = _state.update { it.copy(message = null) }
 }
+
+/** Splits a comma-separated translation field into its trimmed, non-blank parts. */
+internal fun splitTranslations(translation: String): List<String> =
+    translation.split(",").map { it.trim() }.filter { it.isNotBlank() }
 
 /**
  * Reports exactly which of the three lookups succeeded — the dictionary API commonly has
