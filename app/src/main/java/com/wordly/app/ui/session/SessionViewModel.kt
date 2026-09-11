@@ -37,6 +37,7 @@ class SessionViewModel(
         runCatching { Direction.valueOf(handle["dir"] ?: "") }.getOrDefault(Direction.EN_TO_RU)
     private val shuffle: Boolean = (handle.get<String>("shuffle")).toBoolean()
     private val window: Int = handle.get<String>("window")?.toIntOrNull() ?: -1
+    private val fromStart: Boolean = (handle.get<String>("fromStart")).toBoolean()
     private val batchSize: Int = handle.get<String>("batch")?.toIntOrNull() ?: 20
     private val seed: Long = handle.get<String>("seed")?.toLongOrNull() ?: 0L
 
@@ -55,6 +56,7 @@ class SessionViewModel(
                 all = all,
                 benchmark = benchmark,
                 window = window.takeIf { it >= 0 },
+                fromStart = fromStart,
             )
             LearningEngine.orderSession(slice, shuffle, seed)
         }

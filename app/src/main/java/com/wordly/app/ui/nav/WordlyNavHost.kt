@@ -53,6 +53,7 @@ fun WordlyNavHost() {
                 navArgument("dir") { type = NavType.StringType; defaultValue = "EN_TO_RU" },
                 navArgument("shuffle") { type = NavType.StringType; defaultValue = "false" },
                 navArgument("window") { type = NavType.StringType; defaultValue = "-1" },
+                navArgument("fromStart") { type = NavType.StringType; defaultValue = "false" },
                 navArgument("batch") { type = NavType.StringType; defaultValue = "0" },
                 navArgument("seed") { type = NavType.StringType; defaultValue = "0" },
             ),

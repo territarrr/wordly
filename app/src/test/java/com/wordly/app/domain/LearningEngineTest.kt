@@ -39,6 +39,18 @@ class LearningEngineTest {
     }
 
     @Test
+    fun `learnedWindow returns the first N learned when fromStart is true`() {
+        val result = LearningEngine.learnedWindow(all, benchmark = 8, window = 3, fromStart = true)
+        assertEquals(listOf(1L, 2, 3), result.map { it.orderIndex })
+    }
+
+    @Test
+    fun `learnedWindow fromStart still respects the benchmark`() {
+        val result = LearningEngine.learnedWindow(all, benchmark = 4, window = 10, fromStart = true)
+        assertEquals(listOf(1L, 2, 3, 4), result.map { it.orderIndex })
+    }
+
+    @Test
     fun `learnedWindow never returns words past the benchmark`() {
         val result = LearningEngine.learnedWindow(all, benchmark = 4, window = 100)
         assertEquals(listOf(1L, 2, 3, 4), result.map { it.orderIndex })

@@ -12,7 +12,8 @@ object Routes {
     fun edit(wordId: Long): String = "edit/$wordId"
 
     const val SESSION_PATTERN =
-        "session?mode={mode}&dir={dir}&shuffle={shuffle}&window={window}&batch={batch}&seed={seed}"
+        "session?mode={mode}&dir={dir}&shuffle={shuffle}&window={window}&fromStart={fromStart}" +
+            "&batch={batch}&seed={seed}"
 
     fun session(config: SessionConfig): String = when (config) {
         is SessionConfig.Review -> build(
@@ -20,6 +21,7 @@ object Routes {
             dir = config.direction,
             shuffle = config.shuffle,
             window = config.window ?: -1,
+            fromStart = config.fromStart,
             batch = 0,
             seed = config.seed,
         )
@@ -28,6 +30,7 @@ object Routes {
             dir = config.direction,
             shuffle = false,
             window = -1,
+            fromStart = false,
             batch = config.batchSize,
             seed = 0,
         )
@@ -38,7 +41,9 @@ object Routes {
         dir: Direction,
         shuffle: Boolean,
         window: Int,
+        fromStart: Boolean,
         batch: Int,
         seed: Long,
-    ) = "session?mode=$mode&dir=${dir.name}&shuffle=$shuffle&window=$window&batch=$batch&seed=$seed"
+    ) = "session?mode=$mode&dir=${dir.name}&shuffle=$shuffle&window=$window&fromStart=$fromStart" +
+        "&batch=$batch&seed=$seed"
 }

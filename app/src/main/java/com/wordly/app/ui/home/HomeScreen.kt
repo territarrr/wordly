@@ -64,6 +64,7 @@ fun HomeScreen(
     var direction by remember { mutableStateOf(Direction.EN_TO_RU) }
     var shuffle by remember { mutableStateOf(false) }
     var windowChoice by remember { mutableStateOf<Int?>(null) } // null = all learned
+    var windowFromStart by remember { mutableStateOf(false) } // ignored when windowChoice == null
     var windowCustom by remember { mutableStateOf(false) }
     var windowCustomText by remember { mutableStateOf("") }
     var batchChoice by remember { mutableStateOf(20) }
@@ -125,14 +126,21 @@ fun HomeScreen(
                     windowChoice = null; windowCustom = false
                 }
                 listOf(20, 50, 100).forEach { n ->
-                    WindowChip("Последние $n", windowChoice == n && !windowCustom) {
-                        windowChoice = n; windowCustom = false
+                    WindowChip("Первые $n", windowChoice == n && windowFromStart && !windowCustom) {
+                        windowChoice = n; windowFromStart = true; windowCustom = false
+                    }
+                    WindowChip("Последние $n", windowChoice == n && !windowFromStart && !windowCustom) {
+                        windowChoice = n; windowFromStart = false; windowCustom = false
                     }
                 }
                 WindowChip("Своё", windowCustom) { windowCustom = true }
             }
             if (windowCustom) {
-                NumberField("Сколько последних слов", windowCustomText) { windowCustomText = it }
+                NumberField("Сколько слов", windowCustomText) { windowCustomText = it }
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    WindowChip("С начала", windowFromStart) { windowFromStart = true }
+                    WindowChip("С конца (последние)", !windowFromStart) { windowFromStart = false }
+                }
             }
             Button(
                 onClick = {
@@ -145,6 +153,7 @@ fun HomeScreen(
                             direction = direction,
                             shuffle = shuffle,
                             window = window,
+                            fromStart = windowFromStart,
                             seed = System.currentTimeMillis(),
                         ),
                     )
