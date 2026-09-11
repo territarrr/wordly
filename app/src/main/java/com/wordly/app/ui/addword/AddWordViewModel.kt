@@ -18,6 +18,7 @@ data class AddWordUiState(
     val transcription: String = "",
     val audioUrl: String? = null,
     val translationOptions: List<String> = emptyList(),
+    val lookedUp: Boolean = false,
     val looking: Boolean = false,
     val saving: Boolean = false,
     val textError: String? = null,
@@ -92,6 +93,7 @@ class AddWordViewModel(
             _state.update { current ->
                 current.copy(
                     looking = false,
+                    lookedUp = true,
                     transcription = dictionary?.transcription ?: current.transcription,
                     audioUrl = dictionary?.audioUrl ?: current.audioUrl,
                     translationOptions = translations,
