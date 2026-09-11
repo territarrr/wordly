@@ -10,6 +10,7 @@ import com.wordly.app.data.WordRepository
 import com.wordly.app.data.db.WordlyDatabase
 import com.wordly.app.data.remote.DictionaryApi
 import com.wordly.app.data.remote.TranslationApi
+import com.wordly.app.data.remote.WiktionaryApi
 import com.wordly.app.notify.Notifier
 import com.wordly.app.BuildConfig
 import kotlinx.serialization.json.Json
@@ -64,11 +65,19 @@ class AppContainer(context: Context) {
         .build()
         .create(TranslationApi::class.java)
 
+    private val wiktionaryApi: WiktionaryApi = Retrofit.Builder()
+        .baseUrl("https://en.wiktionary.org/")
+        .client(okHttpClient)
+        .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
+        .build()
+        .create(WiktionaryApi::class.java)
+
     val repository = WordRepository(
         database.wordDao(),
         database.progressDao(),
         dictionaryApi,
         translationApi,
+        wiktionaryApi,
     )
 
     private val speaker = Speaker(context)

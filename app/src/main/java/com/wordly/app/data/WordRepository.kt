@@ -5,9 +5,13 @@ import com.wordly.app.data.db.WordDao
 import com.wordly.app.data.entity.Word
 import com.wordly.app.data.remote.DictionaryApi
 import com.wordly.app.data.remote.TranslationApi
+import com.wordly.app.data.remote.WiktionaryApi
+import com.wordly.app.data.remote.WiktionaryParsing
 import com.wordly.app.data.remote.WordLookup
 import com.wordly.app.domain.LearningEngine
 import com.wordly.app.domain.TranslationRanking
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -19,6 +23,7 @@ class WordRepository(
     private val progressDao: ProgressDao,
     private val dictionaryApi: DictionaryApi,
     private val translationApi: TranslationApi,
+    private val wiktionaryApi: WiktionaryApi,
 ) {
 
     fun observeWords(): Flow<List<Word>> = wordDao.observeAllOrdered()
@@ -95,9 +100,32 @@ class WordRepository(
         progressDao.setBenchmark(orderIndex)
     }
 
-    /** Looks up IPA transcription and a pronunciation audio URL. Never throws. */
-    suspend fun lookup(word: String): Result<WordLookup> = runCatching {
-        val entries = dictionaryApi.lookup(word.trim())
+    /**
+     * Looks up IPA transcription and a pronunciation audio URL, trying api.dictionaryapi.dev
+     * and en.wiktionary.org in parallel and preferring whichever found data. Wiktionary (backed
+     * by Wikimedia) is far more reliably available than the much smaller dictionaryapi.dev
+     * project, which dictionaryapi.dev then fills gaps in when it does happen to have data
+     * Wiktionary's page structure didn't yield for that particular word. Never throws.
+     */
+    suspend fun lookup(word: String): Result<WordLookup> = coroutineScope {
+        val trimmed = word.trim()
+        val dictionaryDeferred = async { runCatching { fetchFromDictionary(trimmed) } }
+        val wiktionaryDeferred = async { runCatching { fetchFromWiktionary(trimmed) } }
+        val dictionary = dictionaryDeferred.await().getOrNull()
+        val wiktionary = wiktionaryDeferred.await().getOrNull()
+
+        val transcription = wiktionary?.transcription ?: dictionary?.transcription
+        val audioUrl = wiktionary?.audioUrl ?: dictionary?.audioUrl
+
+        if (transcription != null || audioUrl != null) {
+            Result.success(WordLookup(transcription, audioUrl))
+        } else {
+            Result.failure(NoSuchElementException("No dictionary data found for \"$trimmed\""))
+        }
+    }
+
+    private suspend fun fetchFromDictionary(word: String): WordLookup {
+        val entries = dictionaryApi.lookup(word)
         val transcription = entries.firstNotNullOfOrNull { entry ->
             entry.phonetic?.takeIf { it.isNotBlank() }
                 ?: entry.phonetics.firstNotNullOfOrNull { it.text?.takeIf(String::isNotBlank) }
@@ -106,7 +134,18 @@ class WordRepository(
             .flatMap { it.phonetics }
             .firstNotNullOfOrNull { it.audio?.takeIf(String::isNotBlank) }
             ?.let { if (it.startsWith("//")) "https:$it" else it }
-        WordLookup(transcription, audio)
+        return WordLookup(transcription, audio)
+    }
+
+    private suspend fun fetchFromWiktionary(word: String): WordLookup {
+        val sections = wiktionaryApi.sections(word).parse?.sections.orEmpty()
+        val sectionIndex = WiktionaryParsing.findEnglishPronunciationSectionIndex(sections)
+            ?: return WordLookup(null, null)
+        val html = wiktionaryApi.sectionHtml(word, sectionIndex).parse?.text.orEmpty()
+        return WordLookup(
+            transcription = WiktionaryParsing.extractFirstIpa(html),
+            audioUrl = WiktionaryParsing.extractFirstAudioUrl(html),
+        )
     }
 
     /**

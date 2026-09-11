@@ -86,17 +86,49 @@ lambdas (e.g. `viewModel { HomeViewModel(container.repository) }`), not through 
 ### Pronunciation
 
 `audio/Pronouncer` picks between two backends depending on what a `Word` has:
-`audio/AudioPlayer` (plain `MediaPlayer`) plays the mp3 URL from the dictionary API when
-`Word.audioUrl` is set; otherwise `audio/Speaker` (platform `TextToSpeech`, en-GB with a
-en-US fallback) speaks `Word.text`. `data/remote/DictionaryApi` hits
-`api.dictionaryapi.dev` (free, no key) only from the add-word screen to pre-fill IPA
-transcription + audio URL — lookup failures are swallowed into `Result.failure` and the
-form falls back to manual entry; they must never block saving a word.
+`audio/AudioPlayer` (plain `MediaPlayer`) plays an mp3 URL when `Word.audioUrl` is set;
+otherwise `audio/Speaker` (platform `TextToSpeech`, en-GB with an en-US fallback) speaks
+`Word.text`. Because the TTS fallback always "succeeds", a person can't tell a failed
+lookup from a successful one just by whether tapping 🔊 makes a sound — the add-word screen
+tracks `lookedUp`/`audioUrl` separately and says explicitly which one is playing (see
+`ui/addword/AddWordScreen.kt`).
+
+### Word lookup (transcription/audio/translation)
+
+`WordRepository.lookup()` fetches IPA transcription + pronunciation audio from **two
+sources in parallel**, preferring whichever answered:
+- `data/remote/WiktionaryApi` — en.wiktionary.org's MediaWiki API (Wikimedia-backed, free,
+  no key). Two calls per lookup: `sections()` to find the "Pronunciation" subsection nested
+  under the top-level "English" heading (`WiktionaryParsing.findEnglishPronunciationSectionIndex`
+  — a page title mixes every language using that spelling, e.g. "chat" is English *and*
+  French, so grabbing the first "Pronunciation" on the page would be wrong), then
+  `sectionHtml()` for just that section, from which `WiktionaryParsing` regex-extracts the
+  first `/.../`-or-`[...]`-delimited IPA span and the first audio `<source>` (preferring an
+  already-transcoded `.mp3` over the raw `.ogg`).
+- `data/remote/DictionaryApi` — api.dictionaryapi.dev (free, no key). Simpler/faster (one
+  call, clean JSON) but a much smaller project with a real history of extended outages;
+  kept as a second parallel attempt that fills in gaps Wiktionary's parsing didn't catch for
+  a given word, not the primary source.
+
+Both attempts are independently wrapped in `runCatching` inside `WordRepository.lookup()`
+so one failing (or both) never throws — it only returns `Result.failure` when *neither*
+source found anything. `data/remote/TranslationApi` (MyMemory, free, no key) separately
+fetches candidate Russian translations; because MyMemory is translation-*memory* (aligned
+sentence pairs), not a dictionary, `domain/TranslationRanking` filters out multi-word/
+preposition-led results that are really fragments of an example sentence rather than a
+word-for-word translation. All three lookups run from the add-word screen only — failures
+must never block saving a word, and are surfaced via `lookupResultMessage()`
+(`ui/addword/AddWordViewModel.kt`) naming exactly which of translation/transcription/audio
+came back, since claiming "transcription loaded" when only audio did is exactly the kind of
+inaccuracy that caused confusion before.
 
 ### Screens
 
 Compose Navigation graph (`ui/nav/WordlyNavHost.kt`): `home` ↔ `words` (list, with a
 "выучено до сюда" divider positioned by comparing each word's `orderIndex` to the
-benchmark) ↔ `add` (duplicate check via `WordRepository.findDuplicate` before any lookup
-or save) ↔ `session`. Each screen's ViewModel is small and screen-specific
-(`ui/<screen>/<Screen>ViewModel.kt`); there is no shared app-wide ViewModel.
+benchmark, each row tappable to edit) ↔ `add`/`edit/{wordId}` (same `AddWordScreen`/
+`AddWordViewModel`, `wordId == null` vs. a real id switches add vs. edit-in-place; duplicate
+check via `WordRepository.findDuplicate`/`updateWord` excludes the word being edited itself
+so it doesn't collide with its own unchanged text) ↔ `session`. Each screen's ViewModel is
+small and screen-specific (`ui/<screen>/<Screen>ViewModel.kt`); there is no shared app-wide
+ViewModel.
