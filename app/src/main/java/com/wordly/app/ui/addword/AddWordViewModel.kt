@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.wordly.app.audio.Pronouncer
 import com.wordly.app.data.DuplicateWordException
 import com.wordly.app.data.WordRepository
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,6 +17,7 @@ data class AddWordUiState(
     val translation: String = "",
     val transcription: String = "",
     val audioUrl: String? = null,
+    val translationOptions: List<String> = emptyList(),
     val looking: Boolean = false,
     val saving: Boolean = false,
     val textError: String? = null,
@@ -24,13 +26,34 @@ data class AddWordUiState(
     val saved: Boolean = false,
 )
 
+/** [wordId] `null` adds a new word; a real id loads and edits that existing word. */
 class AddWordViewModel(
     private val repository: WordRepository,
     private val pronouncer: Pronouncer,
+    private val wordId: Long? = null,
 ) : ViewModel() {
+
+    val isEditing: Boolean get() = wordId != null
 
     private val _state = MutableStateFlow(AddWordUiState())
     val state: StateFlow<AddWordUiState> = _state.asStateFlow()
+
+    init {
+        if (wordId != null) {
+            viewModelScope.launch {
+                repository.getWord(wordId)?.let { word ->
+                    _state.update {
+                        it.copy(
+                            text = word.text,
+                            translation = word.translation,
+                            transcription = word.transcription.orEmpty(),
+                            audioUrl = word.audioUrl,
+                        )
+                    }
+                }
+            }
+        }
+    }
 
     fun onText(value: String) = _state.update { it.copy(text = value, textError = null) }
 
@@ -39,11 +62,16 @@ class AddWordViewModel(
 
     fun onTranscription(value: String) = _state.update { it.copy(transcription = value) }
 
+    /** Picks one of the fetched [AddWordUiState.translationOptions] into the translation field. */
+    fun pickTranslation(option: String) =
+        _state.update { it.copy(translation = option, translationError = null) }
+
     fun previewAudio() {
         val s = _state.value
         if (s.text.isNotBlank()) pronouncer.pronounce(s.text, s.audioUrl)
     }
 
+    /** Fetches IPA transcription + pronunciation audio, and candidate Russian translations. */
     fun lookup() {
         val word = _state.value.text.trim()
         if (word.isBlank()) {
@@ -52,24 +80,26 @@ class AddWordViewModel(
         }
         _state.update { it.copy(looking = true, message = null) }
         viewModelScope.launch {
-            val result = repository.lookup(word)
+            val dictionaryDeferred = async { repository.lookup(word) }
+            val translationsDeferred = async { repository.lookupTranslations(word) }
+            val dictionary = dictionaryDeferred.await().getOrNull()
+            val translations = translationsDeferred.await().getOrDefault(emptyList())
+
+            val gotDictionaryData = dictionary?.transcription != null || dictionary?.audioUrl != null
+            val gotTranslations = translations.isNotEmpty()
+
             _state.update { current ->
-                result.fold(
-                    onSuccess = { lookup ->
-                        val hasData = lookup.transcription != null || lookup.audioUrl != null
-                        current.copy(
-                            looking = false,
-                            transcription = lookup.transcription ?: current.transcription,
-                            audioUrl = lookup.audioUrl ?: current.audioUrl,
-                            message = if (hasData) "Данные из словаря загружены"
-                            else "В словаре нет транскрипции для этого слова",
-                        )
-                    },
-                    onFailure = {
-                        current.copy(
-                            looking = false,
-                            message = "Не удалось получить данные из словаря — введите вручную",
-                        )
+                current.copy(
+                    looking = false,
+                    transcription = dictionary?.transcription ?: current.transcription,
+                    audioUrl = dictionary?.audioUrl ?: current.audioUrl,
+                    translationOptions = translations,
+                    translation = current.translation.ifBlank { translations.firstOrNull().orEmpty() },
+                    message = when {
+                        gotDictionaryData && gotTranslations -> "Перевод, транскрипция и озвучка загружены"
+                        gotTranslations -> "Варианты перевода загружены, транскрипция не найдена"
+                        gotDictionaryData -> "Транскрипция и озвучка загружены, перевод не найден"
+                        else -> "Не удалось получить данные — введите вручную"
                     },
                 )
             }
@@ -85,7 +115,11 @@ class AddWordViewModel(
             _state.update { it.copy(saving = true) }
             viewModelScope.launch {
                 runCatching {
-                    repository.addWord(s.text, s.translation, s.transcription, s.audioUrl)
+                    if (wordId != null) {
+                        repository.updateWord(wordId, s.text, s.translation, s.transcription, s.audioUrl)
+                    } else {
+                        repository.addWord(s.text, s.translation, s.transcription, s.audioUrl)
+                    }
                 }.fold(
                     onSuccess = { _state.update { it.copy(saving = false, saved = true) } },
                     onFailure = { error ->
@@ -106,6 +140,15 @@ class AddWordViewModel(
             return
         }
         _state.update { it.copy(textError = textError, translationError = translationError) }
+    }
+
+    /** Deletes the word being edited. No-op when adding a new word (wordId is null). */
+    fun delete() {
+        val id = wordId ?: return
+        viewModelScope.launch {
+            repository.getWord(id)?.let { repository.deleteWord(it) }
+            _state.update { it.copy(saved = true) }
+        }
     }
 
     fun consumeMessage() = _state.update { it.copy(message = null) }

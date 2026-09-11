@@ -2,6 +2,8 @@ package com.wordly.app.ui.addword
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -11,6 +13,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -27,7 +32,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -35,16 +42,19 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.wordly.app.ui.common.container
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** [wordId] `null` adds a new word; a real id opens that word for viewing/editing. */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AddWordScreen(
     onDone: () -> Unit,
+    wordId: Long? = null,
     viewModel: AddWordViewModel = viewModel {
-        AddWordViewModel(container.repository, container.pronouncer)
+        AddWordViewModel(container.repository, container.pronouncer, wordId)
     },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.saved) { if (state.saved) onDone() }
 
@@ -55,16 +65,37 @@ fun AddWordScreen(
         }
     }
 
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Удалить слово?") },
+            text = { Text("«${state.text}» будет удалено без возможности восстановления.") },
+            confirmButton = {
+                TextButton(onClick = { showDeleteConfirm = false; viewModel.delete() }) {
+                    Text("Удалить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("Отмена") }
+            },
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Новое слово") },
+                title = { Text(if (viewModel.isEditing) "Изменить слово" else "Новое слово") },
                 navigationIcon = {
                     IconButton(onClick = onDone) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
                     }
                 },
                 actions = {
+                    if (viewModel.isEditing) {
+                        IconButton(onClick = { showDeleteConfirm = true }) {
+                            Icon(Icons.Outlined.Delete, contentDescription = "Удалить слово")
+                        }
+                    }
                     TextButton(onClick = viewModel::save, enabled = !state.saving) {
                         Text("Сохранить")
                     }
@@ -98,6 +129,16 @@ fun AddWordScreen(
                 supportingText = state.translationError?.let { { Text(it) } },
                 modifier = Modifier.fillMaxWidth(),
             )
+            if (state.translationOptions.isNotEmpty()) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    state.translationOptions.forEach { option ->
+                        AssistChip(
+                            onClick = { viewModel.pickTranslation(option) },
+                            label = { Text(option) },
+                        )
+                    }
+                }
+            }
             OutlinedTextField(
                 value = state.transcription,
                 onValueChange = viewModel::onTranscription,
@@ -118,7 +159,7 @@ fun AddWordScreen(
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedButton(onClick = viewModel::lookup, enabled = !state.looking) {
-                    Text("Подтянуть транскрипцию и озвучку")
+                    Text("Подтянуть перевод, транскрипцию и озвучку")
                 }
                 if (state.looking) {
                     CircularProgressIndicator(
@@ -137,7 +178,7 @@ fun AddWordScreen(
                 onClick = viewModel::save,
                 enabled = !state.saving,
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Сохранить слово") }
+            ) { Text(if (viewModel.isEditing) "Сохранить изменения" else "Сохранить слово") }
         }
     }
 }

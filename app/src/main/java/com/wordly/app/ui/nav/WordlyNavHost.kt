@@ -28,11 +28,22 @@ fun WordlyNavHost() {
             WordListScreen(
                 onBack = { navController.popBackStack() },
                 onAddWord = { navController.navigate(Routes.ADD) },
+                onEditWord = { wordId -> navController.navigate(Routes.edit(wordId)) },
             )
         }
 
         composable(Routes.ADD) {
             AddWordScreen(onDone = { navController.popBackStack() })
+        }
+
+        composable(
+            route = Routes.EDIT_PATTERN,
+            arguments = listOf(navArgument("wordId") { type = NavType.LongType }),
+        ) { backStackEntry ->
+            AddWordScreen(
+                wordId = backStackEntry.arguments?.getLong("wordId"),
+                onDone = { navController.popBackStack() },
+            )
         }
 
         composable(

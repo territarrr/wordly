@@ -7,6 +7,9 @@ object Routes {
     const val HOME = "home"
     const val WORDS = "words"
     const val ADD = "add"
+    const val EDIT_PATTERN = "edit/{wordId}"
+
+    fun edit(wordId: Long): String = "edit/$wordId"
 
     const val SESSION_PATTERN =
         "session?mode={mode}&dir={dir}&shuffle={shuffle}&window={window}&batch={batch}&seed={seed}"

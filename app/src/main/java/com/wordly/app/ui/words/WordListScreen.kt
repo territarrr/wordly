@@ -1,5 +1,6 @@
 package com.wordly.app.ui.words
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -39,6 +40,7 @@ import com.wordly.app.ui.common.container
 fun WordListScreen(
     onBack: () -> Unit,
     onAddWord: () -> Unit,
+    onEditWord: (Long) -> Unit,
     viewModel: WordListViewModel = viewModel {
         WordListViewModel(container.repository, container.pronouncer)
     },
@@ -81,6 +83,7 @@ fun WordListScreen(
             itemsIndexed(state.words, key = { _, word -> word.id }) { index, word ->
                 WordRow(
                     word = word,
+                    onClick = { onEditWord(word.id) },
                     onSpeak = { viewModel.pronounce(word) },
                     onDelete = { viewModel.delete(word) },
                 )
@@ -114,10 +117,11 @@ private fun BenchmarkDivider() {
 }
 
 @Composable
-private fun WordRow(word: Word, onSpeak: () -> Unit, onDelete: () -> Unit) {
+private fun WordRow(word: Word, onClick: () -> Unit, onSpeak: () -> Unit, onDelete: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable(onClick = onClick)
             .padding(start = 16.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

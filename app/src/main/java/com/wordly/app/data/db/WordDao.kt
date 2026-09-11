@@ -21,6 +21,9 @@ interface WordDao {
     @Query("SELECT * FROM words WHERE normalized = :normalized LIMIT 1")
     suspend fun findByNormalized(normalized: String): Word?
 
+    @Query("SELECT * FROM words WHERE id = :id LIMIT 1")
+    suspend fun getById(id: Long): Word?
+
     @Query("SELECT COALESCE(MAX(orderIndex), 0) FROM words")
     suspend fun maxOrderIndex(): Long
 

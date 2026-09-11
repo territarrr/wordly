@@ -9,6 +9,7 @@ import com.wordly.app.audio.Speaker
 import com.wordly.app.data.WordRepository
 import com.wordly.app.data.db.WordlyDatabase
 import com.wordly.app.data.remote.DictionaryApi
+import com.wordly.app.data.remote.TranslationApi
 import com.wordly.app.notify.Notifier
 import com.wordly.app.BuildConfig
 import kotlinx.serialization.json.Json
@@ -56,7 +57,19 @@ class AppContainer(context: Context) {
         .build()
         .create(DictionaryApi::class.java)
 
-    val repository = WordRepository(database.wordDao(), database.progressDao(), dictionaryApi)
+    private val translationApi: TranslationApi = Retrofit.Builder()
+        .baseUrl("https://api.mymemory.translated.net/")
+        .client(okHttpClient)
+        .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
+        .build()
+        .create(TranslationApi::class.java)
+
+    val repository = WordRepository(
+        database.wordDao(),
+        database.progressDao(),
+        dictionaryApi,
+        translationApi,
+    )
 
     private val speaker = Speaker(context)
     private val audioPlayer = AudioPlayer()
