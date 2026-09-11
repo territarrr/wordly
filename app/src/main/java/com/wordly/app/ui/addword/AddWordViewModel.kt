@@ -85,7 +85,8 @@ class AddWordViewModel(
             val dictionary = dictionaryDeferred.await().getOrNull()
             val translations = translationsDeferred.await().getOrDefault(emptyList())
 
-            val gotDictionaryData = dictionary?.transcription != null || dictionary?.audioUrl != null
+            val gotTranscription = dictionary?.transcription != null
+            val gotAudio = dictionary?.audioUrl != null
             val gotTranslations = translations.isNotEmpty()
 
             _state.update { current ->
@@ -95,12 +96,7 @@ class AddWordViewModel(
                     audioUrl = dictionary?.audioUrl ?: current.audioUrl,
                     translationOptions = translations,
                     translation = current.translation.ifBlank { translations.firstOrNull().orEmpty() },
-                    message = when {
-                        gotDictionaryData && gotTranslations -> "Перевод, транскрипция и озвучка загружены"
-                        gotTranslations -> "Варианты перевода загружены, транскрипция не найдена"
-                        gotDictionaryData -> "Транскрипция и озвучка загружены, перевод не найден"
-                        else -> "Не удалось получить данные — введите вручную"
-                    },
+                    message = lookupResultMessage(gotTranslations, gotTranscription, gotAudio),
                 )
             }
         }
@@ -152,4 +148,29 @@ class AddWordViewModel(
     }
 
     fun consumeMessage() = _state.update { it.copy(message = null) }
+}
+
+/**
+ * Reports exactly which of the three lookups succeeded — the dictionary API commonly has
+ * audio without an IPA transcription (or vice versa) for a given word, so "загружено" must
+ * never be said for a part that came back empty.
+ */
+internal fun lookupResultMessage(
+    gotTranslations: Boolean,
+    gotTranscription: Boolean,
+    gotAudio: Boolean,
+): String {
+    val loaded = buildList {
+        if (gotTranslations) add("перевод")
+        if (gotTranscription) add("транскрипция")
+        if (gotAudio) add("озвучка")
+    }
+    if (loaded.isEmpty()) return "Не удалось получить данные — введите вручную"
+    val missing = buildList {
+        if (!gotTranslations) add("перевод")
+        if (!gotTranscription) add("транскрипция")
+        if (!gotAudio) add("озвучка")
+    }
+    return "Загружено: ${loaded.joinToString(", ")}" +
+        if (missing.isEmpty()) "" else ". Не найдено: ${missing.joinToString(", ")}"
 }
