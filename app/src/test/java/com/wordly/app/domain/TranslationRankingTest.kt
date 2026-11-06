@@ -48,4 +48,15 @@ class TranslationRankingTest {
         val raw = (1..10).map { "слово$it" }
         assertEquals(4, TranslationRanking.rank(raw, limit = 4).size)
     }
+
+    @Test
+    fun `lower-case source word lower-cases capitalised candidates but keeps acronyms`() {
+        assertEquals(listOf("лихорадка", "США"), TranslationRanking.rank(listOf("Лихорадка", "США"), sourceWord = "groznica"))
+        assertEquals(listOf("Москва"), TranslationRanking.rank(listOf("Москва"), sourceWord = "Moskva"))
+    }
+
+    @Test
+    fun `keepOrder preserves source priority`() {
+        assertEquals(listOf("приятель", "друг"), TranslationRanking.rank(listOf("приятель", "друг"), keepOrder = true))
+    }
 }

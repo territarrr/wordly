@@ -32,6 +32,7 @@ class WordDaoTest {
     fun tearDown() = db.close()
 
     private fun word(order: Long, normalized: String) = Word(
+        profileId = P,
         orderIndex = order,
         text = normalized,
         normalized = normalized,
@@ -53,15 +54,30 @@ class WordDaoTest {
         val id1 = dao.insert(word(1, "a"))
         dao.insert(word(2, "b"))
         val id3 = dao.insert(word(3, "c"))
-        assertEquals(3L, dao.maxOrderIndex())
+        assertEquals(3L, dao.maxOrderIndex(P))
 
-        dao.delete(word(2, "b").copy(id = dao.findByNormalized("b")!!.id))
-        assertEquals(3L, dao.maxOrderIndex())
+        dao.delete(word(2, "b").copy(id = dao.findByNormalized(P, "b")!!.id))
+        assertEquals(3L, dao.maxOrderIndex(P))
 
         // Ensure remaining rows keep their original order indices.
-        val remaining = dao.getAllOrdered().map { it.orderIndex }
+        val remaining = dao.getAllOrdered(P).map { it.orderIndex }
         assertEquals(listOf(1L, 3L), remaining)
-        assertEquals(id1, dao.findByNormalized("a")!!.id)
-        assertEquals(id3, dao.findByNormalized("c")!!.id)
+        assertEquals(id1, dao.findByNormalized(P, "a")!!.id)
+        assertEquals(id3, dao.findByNormalized(P, "c")!!.id)
+    }
+
+    @Test
+    fun deleteAllThenRestoreBringsBackSameRows() = runTest {
+        dao.insert(word(1, "a"))
+        dao.insert(word(2, "b"))
+        val before = dao.getAllOrdered(P)
+        dao.deleteAll(before)
+        assertEquals(0, dao.getAllOrdered(P).size)
+        dao.restore(before)
+        assertEquals(before, dao.getAllOrdered(P))
+    }
+
+    private companion object {
+        const val P = 1L
     }
 }

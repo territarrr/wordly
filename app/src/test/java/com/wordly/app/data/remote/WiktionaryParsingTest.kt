@@ -47,6 +47,27 @@ class WiktionaryParsingTest {
     }
 
     @Test
+    fun `finds Translations nested under English, even several levels deep under a POS`() {
+        // Real shape: Translations sits under a Noun/Verb sense, not directly under English.
+        val sections = listOf(
+            WiktionarySectionDto(toclevel = 1, line = "English", index = "1"),
+            WiktionarySectionDto(toclevel = 2, line = "Noun", index = "5"),
+            WiktionarySectionDto(toclevel = 3, line = "Translations", index = "8"),
+            WiktionarySectionDto(toclevel = 2, line = "Verb", index = "10"),
+        )
+        assertEquals("8", WiktionaryParsing.findEnglishTranslationsSectionIndex(sections))
+    }
+
+    @Test
+    fun `ignores a Translations section belonging to a different language`() {
+        val sections = listOf(
+            WiktionarySectionDto(toclevel = 1, line = "French", index = "1"),
+            WiktionarySectionDto(toclevel = 2, line = "Translations", index = "2"),
+        )
+        assertNull(WiktionaryParsing.findEnglishTranslationsSectionIndex(sections))
+    }
+
+    @Test
     fun `extracts the first slash-delimited IPA span, skipping bare rhyme codes`() {
         // Real rendered shape for "chat" - a bare "-æt" rhyme also carries the IPA class.
         val html = """
@@ -91,6 +112,34 @@ class WiktionaryParsingTest {
     @Test
     fun `returns null when no audio source is present`() {
         assertNull(WiktionaryParsing.extractFirstAudioUrl("<p>no audio</p>"))
+    }
+
+    @Test
+    fun `extracts a Russian headword and strips its stress-mark diacritic`() {
+        // Real rendered shape for "example"'s Translations table.
+        val html = """
+            <span class="Cyrl" lang="ru"><a href="/wiki/%D0%BF%D1%80%D0%B8%D0%BC%D0%B5%D1%80#Russian"
+            title="пример">при́мер</a></span><span class="tpos"> <a
+            href="https://ru.wiktionary.org/wiki/%D0%BF%D1%80%D0%B8%D0%BC%D0%B5%D1%80"
+            class="extiw" title="ru:пример">(ru)</a></span>
+        """.trimIndent()
+        assertEquals(listOf("пример"), WiktionaryParsing.extractRussianTranslations(html))
+    }
+
+    @Test
+    fun `extracts multiple Russian headwords from separate glosses and dedupes`() {
+        val html = """
+            <li><span class="Cyrl" lang="ru">пример</span></li>
+            <li><span class="Cyrl" lang="ru">образец</span></li>
+            <li><span class="Cyrl" lang="ru">пример</span></li>
+        """.trimIndent()
+        assertEquals(listOf("пример", "образец"), WiktionaryParsing.extractRussianTranslations(html))
+    }
+
+    @Test
+    fun `returns an empty list when no Russian entry is present`() {
+        val html = """<span class="Cyrl" lang="uk">приклад</span>"""
+        assertEquals(emptyList<String>(), WiktionaryParsing.extractRussianTranslations(html))
     }
 
     /** Real (trimmed) MediaWiki `prop=sections` response, captured for the word "garden". */

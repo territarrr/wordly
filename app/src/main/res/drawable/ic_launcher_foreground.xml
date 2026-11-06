@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Wordly mark: two flash cards fanned out, the front one carrying a bold "W".
+  Everything stays inside the 66dp adaptive-icon safe zone (21..87).
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Back card -->
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:rotation="-14">
+        <path
+            android:fillColor="#FFFFFF"
+            android:fillAlpha="0.35"
+            android:pathData="M41,30h26a7,7 0,0 1,7 7v34a7,7 0,0 1,-7 7h-26a7,7 0,0 1,-7 -7v-34a7,7 0,0 1,7 -7z" />
+    </group>
+    <!-- Front card -->
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:rotation="6">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M41,30h26a7,7 0,0 1,7 7v34a7,7 0,0 1,-7 7h-26a7,7 0,0 1,-7 -7v-34a7,7 0,0 1,7 -7z" />
+        <path
+            android:pathData="M42,44L48,64L54,50L60,64L66,44"
+            android:strokeWidth="6"
+            android:strokeColor="#FF0F7B5F"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+    </group>
+</vector>

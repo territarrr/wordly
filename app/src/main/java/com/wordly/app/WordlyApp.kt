@@ -6,12 +6,21 @@ import androidx.room.Room
 import com.wordly.app.audio.AudioPlayer
 import com.wordly.app.audio.Pronouncer
 import com.wordly.app.audio.Speaker
+import com.wordly.app.data.AppSettings
+import com.wordly.app.data.ProfilePreferences
 import com.wordly.app.data.WordRepository
+import com.wordly.app.data.db.MIGRATION_1_2
+import com.wordly.app.data.db.MIGRATION_2_3
+import com.wordly.app.data.db.MIGRATION_3_4
 import com.wordly.app.data.db.WordlyDatabase
 import com.wordly.app.data.remote.DictionaryApi
+import com.wordly.app.data.remote.GoogleSheetsApi
 import com.wordly.app.data.remote.TranslationApi
 import com.wordly.app.data.remote.WiktionaryApi
 import com.wordly.app.notify.Notifier
+import com.wordly.app.notify.ReminderScheduler
+import com.wordly.app.translate.FreeDictTranslator
+import com.wordly.app.translate.MlKitTranslator
 import com.wordly.app.BuildConfig
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
@@ -29,16 +38,21 @@ class WordlyApp : Application() {
         super.onCreate()
         container = AppContainer(this)
         container.notifier.ensureChannel()
+        // The reminder is on by default, so it must be scheduled without a visit to Settings.
+        ReminderScheduler.apply(this, container.settings.reminder.value, replace = false)
     }
 }
 
 /** Hand-rolled dependency container (no DI framework). Lives for the process lifetime. */
 class AppContainer(context: Context) {
 
+    val appContext: Context = context.applicationContext
+
     private val json = Json { ignoreUnknownKeys = true }
 
     private val database: WordlyDatabase = Room
         .databaseBuilder(context, WordlyDatabase::class.java, "wordly.db")
+        .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
         .build()
 
     private val okHttpClient: OkHttpClient = OkHttpClient.Builder()
@@ -58,13 +72,6 @@ class AppContainer(context: Context) {
         .build()
         .create(DictionaryApi::class.java)
 
-    private val translationApi: TranslationApi = Retrofit.Builder()
-        .baseUrl("https://api.mymemory.translated.net/")
-        .client(okHttpClient)
-        .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
-        .build()
-        .create(TranslationApi::class.java)
-
     private val wiktionaryApi: WiktionaryApi = Retrofit.Builder()
         .baseUrl("https://en.wiktionary.org/")
         .client(okHttpClient)
@@ -72,12 +79,42 @@ class AppContainer(context: Context) {
         .build()
         .create(WiktionaryApi::class.java)
 
+    /** Russian Wiktionary — same MediaWiki API shape as [wiktionaryApi]; used for Serbian → Russian. */
+    private val ruWiktionaryApi: WiktionaryApi = Retrofit.Builder()
+        .baseUrl("https://ru.wiktionary.org/")
+        .client(okHttpClient)
+        .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
+        .build()
+        .create(WiktionaryApi::class.java)
+
+    private val googleSheetsApi: GoogleSheetsApi = Retrofit.Builder()
+        .baseUrl("https://docs.google.com/") // unused: GoogleSheetsApi.fetchCsv takes an absolute @Url
+        .client(okHttpClient)
+        .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
+        .build()
+        .create(GoogleSheetsApi::class.java)
+
+    private val translationApi: TranslationApi = Retrofit.Builder()
+        .baseUrl("https://api.mymemory.translated.net/")
+        .client(okHttpClient)
+        .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
+        .build()
+        .create(TranslationApi::class.java)
+
+    private val mlKitTranslator = MlKitTranslator()
+    private val freeDictTranslator = FreeDictTranslator(context)
+
     val repository = WordRepository(
         database.wordDao(),
         database.progressDao(),
+        database.studyDayDao(),
         dictionaryApi,
-        translationApi,
         wiktionaryApi,
+        ruWiktionaryApi,
+        mlKitTranslator,
+        freeDictTranslator,
+        translationApi,
+        googleSheetsApi,
     )
 
     private val speaker = Speaker(context)
@@ -85,4 +122,8 @@ class AppContainer(context: Context) {
     val pronouncer = Pronouncer(speaker, audioPlayer)
 
     val notifier = Notifier(context)
+
+    val profilePreferences = ProfilePreferences(context)
+
+    val settings = AppSettings(context)
 }

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and below: back up the word database and settings, not the bundled offline dictionary copy. -->
+<full-backup-content>
+    <include domain="database" path="." />
+    <exclude domain="database" path="freedict_eng_rus.db" />
+    <include domain="sharedpref" path="wordly_prefs.xml" />
+</full-backup-content>

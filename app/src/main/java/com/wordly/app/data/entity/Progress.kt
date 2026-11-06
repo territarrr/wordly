@@ -4,14 +4,14 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 
 /**
- * Single-row table ([id] is always 0) holding the moving benchmark.
+ * One row per profile holding that profile's moving benchmark.
  *
- * [benchmarkOrderIndex] is a [Word.orderIndex] value: words at or below it are learned,
- * words above it are still new. `0` means nothing is learned yet (the first word gets
- * `orderIndex = 1`).
+ * [benchmarkOrderIndex] is a [Word.orderIndex] value (scoped to the same [profileId]): words
+ * at or below it are learned, words above it are still new. `0` means nothing is learned yet
+ * (the first word gets `orderIndex = 1`).
  */
 @Entity(tableName = "progress")
 data class Progress(
-    @PrimaryKey val id: Int = 0,
+    @PrimaryKey val profileId: Long,
     val benchmarkOrderIndex: Long = 0,
 )

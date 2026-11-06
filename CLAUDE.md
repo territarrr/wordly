@@ -24,6 +24,14 @@ export ANDROID_HOME="/Users/territar/Library/Android/sdk"
   - Single test class: `./gradlew :app:testDebugUnitTest --tests "com.wordly.app.domain.LearningEngineTest"`
   - Single test method: `./gradlew :app:testDebugUnitTest --tests "com.wordly.app.domain.LearningEngineTest.nextBenchmark advances to the last orderIndex of the batch"`
 - Instrumented tests (need a running emulator/device): `./gradlew :app:connectedAndroidTest`
+  - **Never run this against the owner's real phone**: AGP uninstalls the app after the run,
+    wiping the word database. On a real device, install and run via `am instrument` instead:
+    `./gradlew :app:installDebug :app:assembleDebugAndroidTest`, then
+    `adb install -r -t app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk`,
+    `adb shell am instrument -w com.wordly.app.test/androidx.test.runner.AndroidJUnitRunner`,
+    `adb uninstall com.wordly.app.test` (only the test APK).
+  - Room schemas are exported to `app/schemas/` (fed to `MigrationTestHelper`); every DB
+    version bump needs a `MIGRATION_x_y` in `WordlyDatabase.kt` plus a case in `MigrationTest`.
 - Lint: `./gradlew :app:lintDebug` (report at `app/build/reports/lint-results-debug.html`)
 
 There is no configured AVD by default; `adb devices` / `emulator -list-avds` must show one
@@ -51,26 +59,47 @@ core learning behavior is unit-testable without Robolectric/instrumentation
 - `orderSession(slice, shuffle, seed)` — presentation order (seeded shuffle or addition order).
 - `nextBenchmark(batch, current)` — the benchmark after a confirmed batch.
 - `normalize`/`isDuplicate` — duplicate-word detection (trim + lowercase + collapse whitespace).
+- `favoritesSlice(all, scope)` — favorites, narrowed by the same `ReviewScope` rules.
+- `hardSlice`/`isHard` — words with more misses than hits (`Word.correctCount`/`wrongCount`).
+- `partialCommit(batch, knownIds, current)` — per-word batch confirmation: since the benchmark is
+  a single cut, the batch's own `orderIndex` values are permuted so known words come first;
+  nothing outside the batch moves.
+- `searchByTranslation` — local reverse lookup (Russian → saved word) for the add-word screen.
+
+Alongside it, also pure and unit-tested: `domain/Srs.kt` (Leitner spaced repetition *on top
+of* the benchmark — it only decides when a **learned** word is due again, via `Word.srsBox`/
+`dueAt`; `spreadBacklog` schedules learned words that have no schedule yet over 30 days),
+`domain/Quiz.kt` (typed-answer checking with typo tolerance, multiple-choice options) and
+`domain/StudyStats.kt` (streak over the `study_days` table).
 
 `WordRepository` (in `data/`) is the only thing that touches Room/Retrofit; it loads full
 lists and benchmark values and hands them to `LearningEngine` rather than expressing
 windowing as SQL — keep it that way so the selection logic stays testable in one place.
 
-### Two study modes, one screen
+### Study modes, one screen
 
-`SessionScreen`/`SessionViewModel` (`ui/session/`) drive both modes from one
-`SessionConfig` (`domain/model/SessionModels.kt`):
+`SessionScreen`/`SessionViewModel` (`ui/session/`) drive every mode from one
+`SessionConfig` (`domain/model/SessionModels.kt`). Each config also carries a `QuizType`
+(how cards are answered: flip + "Знаю/Не знаю", typing, multiple choice, listening). Every
+answer goes through `WordRepository.recordAnswer` (counters, `Srs` schedule for learned words,
+today's `study_days` count); a session's mistakes can be re-run without touching the schedule
+again. Session progress (card ids, index, answers) is kept in `SavedStateHandle`.
 
 - **Review** (`SessionConfig.Review`): learned words, optionally shuffled, narrowed by a
   `ReviewScope`. On completing the last card, `Notifier.reviewFinished()` posts a
   notification — the benchmark is untouched.
 - **NewWords** (`SessionConfig.NewWords`): the next batch after the benchmark. On finishing,
-  the UI asks for confirmation: "Да" advances the benchmark to the batch's max
-  `orderIndex` via `LearningEngine.nextBenchmark`; "Ещё нет" restarts the same batch with
-  the benchmark untouched.
+  the UI lists the batch with checkboxes; the ticked words become learned via
+  `WordRepository.commitBatch` → `LearningEngine.partialCommit`, the rest stay first in line.
+  "Пройти пачку заново" restarts the same batch with the benchmark untouched.
+- Any finished round can be re-run in the opposite direction (`SessionViewModel.repeatReversed`,
+  re-shuffled, schedule not touched twice); a card's pencil opens the normal edit screen and
+  `refreshCards()` re-reads the words on return.
+- **Favorites**, **Due** (`Srs.dueSlice`, "На сегодня") and **Hard** (`hardSlice`) — like
+  Review, they never move the benchmark.
 
 `SessionConfig` is serialized into primitive nav-route query params by `ui/nav/Routes.kt`
-(`session?mode=...&dir=...&shuffle=...&scopeType=...&scopeCount=...&scopeFromStart=...`
+(`session?mode=...&dir=...&quiz=...&shuffle=...&scopeType=...&scopeCount=...&scopeFromStart=...`
 `&scopeFrom=...&scopeTo=...&batch=...&seed=...` — `ReviewScope` collapses to
 `scopeType ∈ {all, window, range}` plus whichever of the other fields that type uses) and
 reconstructed from `SavedStateHandle` in `SessionViewModel`'s `decodeScope()` — there is no
@@ -81,8 +110,10 @@ three places: `Routes.session()`/`encodeScope()`, the `navArgument` list in
 ### Dependency wiring
 
 No Hilt/Koin. `WordlyApp` (Application subclass) builds one `AppContainer` on `onCreate()`
-holding the Room database, Retrofit/OkHttp client, `WordRepository`, `Pronouncer`, and
-`Notifier` for the process lifetime. Composables reach it via the `CreationExtras.container`
+holding the Room database, Retrofit/OkHttp client, `WordRepository`, `Pronouncer`,
+`Notifier`, `ProfilePreferences` and `AppSettings` (theme, default batch, daily goal,
+auto-pronounce, reminder — SharedPreferences-backed `StateFlow`s) for the process lifetime.
+The daily reminder is a WorkManager job (`notify/ReminderWorker.kt`), rescheduled from Settings. Composables reach it via the `CreationExtras.container`
 extension in `ui/common/ViewModelSupport.kt`, used inside `viewModel { ... }` initializer
 lambdas (e.g. `viewModel { HomeViewModel(container.repository) }`), not through a manual
 `ViewModelProvider.Factory` class per screen.
@@ -116,12 +147,40 @@ sources in parallel**, preferring whichever answered:
 
 Both attempts are independently wrapped in `runCatching` inside `WordRepository.lookup()`
 so one failing (or both) never throws — it only returns `Result.failure` when *neither*
-source found anything. `data/remote/TranslationApi` (MyMemory, free, no key) separately
-fetches candidate Russian translations; because MyMemory is translation-*memory* (aligned
-sentence pairs), not a dictionary, `domain/TranslationRanking` filters out multi-word/
-preposition-led results that are really fragments of an example sentence rather than a
-word-for-word translation. All three lookups run from the add-word screen only — failures
-must never block saving a word, and are surfaced via `lookupResultMessage()`
+source found anything.
+
+`WordRepository.lookupTranslations()` fetches candidate Russian translations from **two
+sources in parallel**, merging both into one ranked list:
+- `translate/MlKitTranslator` — Google ML Kit's on-device English→Russian model. Runs fully
+  locally after a one-time language-pack download, so unlike a cloud translation API it has
+  no API key, request quota, or billing to manage. Always at most one answer.
+- en.wiktionary.org's "Translations" table, via the same `WiktionaryApi`/`WiktionaryParsing`
+  used for pronunciation: `findEnglishTranslationsSectionIndex` locates the first
+  "Translations" subsection nested under the top-level "English" heading (it sits under a
+  specific part-of-speech sense, e.g. "Noun", not directly under "English" — same
+  cross-language pitfall as the Pronunciation lookup), then `extractRussianTranslations`
+  regex-extracts every `<span class="Cyrl" lang="ru">` headword in that section's HTML,
+  stripping the stress-mark diacritic Wiktionary adds to Cyrillic text. Unlike ML Kit this can
+  surface several real dictionary senses/synonyms for one word.
+
+(An earlier version used MyMemory, `api.mymemory.translated.net`, as a free/no-key cloud
+source instead of Wiktionary — dropped for consistently poor translation quality, since
+MyMemory is translation-*memory*, aligning phrases from a corpus of real sentences rather
+than looking up dictionary entries.) `domain/TranslationRanking` still trims stray
+punctuation and dedupes the merged result.
+
+**Serbian** (`WordRepository.lookupSerbianTranslations`) can't use the English pipeline, and
+ML Kit has **no Serbian model at all** (`"sr"` silently returns nothing). Sources, in priority
+order: ru.wiktionary's Serbian/Serbo-Croatian/Croatian/Bosnian "Значение" section (direct
+Russian; `WiktionaryParsing.extractRussianMeanings`), then en.wiktionary's "Serbo-Croatian"
+glosses (`extractEnglishGlosses`) run through FreeDict (ML Kit en→ru only as a fallback — it
+mistranslates lone words), plus ML Kit Croatian→Russian; the machine-assisted candidates are
+ordered by how many sources agree. Each page is tried in both scripts (`domain/SerbianScript`),
+ML Kit calls are capped at a few seconds (first use downloads a model), and MyMemory is only a
+last resort. Parsers are tested against saved real HTML in `app/src/test/resources/wiktionary/`.
+
+All three lookups (transcription, audio, translation) run from the add-word screen only —
+failures must never block saving a word, and are surfaced via `lookupResultMessage()`
 (`ui/addword/AddWordViewModel.kt`) naming exactly which of translation/transcription/audio
 came back, since claiming "transcription loaded" when only audio did is exactly the kind of
 inaccuracy that caused confusion before.

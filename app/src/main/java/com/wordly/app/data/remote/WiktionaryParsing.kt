@@ -13,16 +13,108 @@ object WiktionaryParsing {
      * spelling (e.g. "chat" is both English and French), so this must not just grab the first
      * "Pronunciation" on the page — that could belong to an entirely different language.
      */
-    fun findEnglishPronunciationSectionIndex(sections: List<WiktionarySectionDto>): String? {
-        val englishIndex = sections.indexOfFirst { it.toclevel == 1 && it.line == "English" }
-        if (englishIndex == -1) return null
-        for (i in englishIndex + 1 until sections.size) {
+    fun findEnglishPronunciationSectionIndex(sections: List<WiktionarySectionDto>): String? =
+        findEnglishSubsectionIndex(sections, "Pronunciation")
+
+    /**
+     * The MediaWiki section index of the first "Translations" subsection nested under the
+     * top-level "English" section (there is one per part-of-speech sense; the first one is
+     * generally the primary sense), or `null` if none exists. Same cross-language pitfall as
+     * [findEnglishPronunciationSectionIndex].
+     */
+    fun findEnglishTranslationsSectionIndex(sections: List<WiktionarySectionDto>): String? =
+        findEnglishSubsectionIndex(sections, "Translations")
+
+    private fun findEnglishSubsectionIndex(
+        sections: List<WiktionarySectionDto>,
+        headingPrefix: String,
+    ): String? = findSubsectionIndex(sections, setOf("English"), headingPrefix)
+
+    /**
+     * The index of the first subsection starting with [headingPrefix] inside the first top-level
+     * section whose heading is one of [languages] — the generalisation of the English-only lookups
+     * above, used for Serbian on both en.wiktionary and ru.wiktionary.
+     */
+    fun findSubsectionIndex(
+        sections: List<WiktionarySectionDto>,
+        languages: Set<String>,
+        headingPrefix: String,
+    ): String? {
+        val languageIndex = sections.indexOfFirst { it.toclevel == 1 && it.line in languages }
+        if (languageIndex == -1) return null
+        for (i in languageIndex + 1 until sections.size) {
             val section = sections[i]
             if (section.toclevel == 1) return null // next top-level language section: stop
-            if (section.line.startsWith("Pronunciation")) return section.index
+            if (section.line.startsWith(headingPrefix)) return section.index
         }
         return null
     }
+
+    /** The index of the top-level section for [language] (e.g. "Serbo-Croatian"), or `null`. */
+    fun findLanguageSectionIndex(sections: List<WiktionarySectionDto>, language: String): String? =
+        sections.firstOrNull { it.toclevel == 1 && it.line == language }?.index
+
+    private val OL = Regex("<ol>(.*?)</ol>", RegexOption.DOT_MATCHES_ALL)
+    private val LI = Regex("<li>(.*?)</li>", RegexOption.DOT_MATCHES_ALL)
+    private val NESTED_LIST = Regex("<(ul|dl|ol)\\b.*", RegexOption.DOT_MATCHES_ALL)
+    private val TAG = Regex("<[^>]+>")
+    private val PARENTHESES = Regex("\\([^)]*\\)")
+    private val SPLIT = Regex("[,;]")
+
+    /**
+     * Short English glosses from an en.wiktionary language section (e.g. "Serbo-Croatian"):
+     * every definition line across its part-of-speech lists, minus usage examples, notes in
+     * parentheses and "form of" lines (e.g. "neuter nominative singular of onaj"), split on
+     * commas. "hvala" → ["praise", "thank you", "thanks"].
+     */
+    fun extractEnglishGlosses(html: String, limit: Int = 4): List<String> =
+        OL.findAll(html)
+            .flatMap { LI.findAll(it.groupValues[1]) }
+            .map { it.groupValues[1].replace(NESTED_LIST, "") }
+            // A link to another Serbo-Croatian headword means "inflection of X", not a meaning.
+            .filterNot { "lang=\"sh\"" in it }
+            .map { li -> cleanText(li).replace(PARENTHESES, "").split(SPLIT).map { it.trim().trim('!', '.', '?', ' ') } }
+            // Same rule as the Russian meanings: a line with a long part is a description
+            // ("anything resembling the state of fever; … ; a bug"), not a list of equivalents.
+            .filter { parts -> parts.none { it.split(' ').size > 3 } }
+            .flatMap { it }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .take(limit)
+            .toList()
+
+    /**
+     * Russian meanings from a ru.wiktionary "Значение" section: each numbered line, cut before
+     * its "◆" usage example, without grammatical/style labels ("этнолог.", "разг."), split on
+     * commas; lines that are descriptive definitions (any part of 4+ words) are dropped whole.
+     */
+    fun extractRussianMeanings(html: String, limit: Int = 6): List<String> =
+        OL.find(html)?.groupValues?.get(1).orEmpty()
+            .let { LI.findAll(it) }
+            .map { it.groupValues[1].substringBefore("<span class=\"example-fullblock") }
+            // A line with any long part is a descriptive definition ("в фам. или ирон. обращении…"),
+            // not a list of synonyms — drop it whole. Measured *with* labels, since labels sit
+            // mid-sentence and removing them first would leave short-looking shards.
+            .filter { li -> meaningParts(li).none { it.split(' ').size > 3 } }
+            .flatMap { li -> meaningParts(li.replace(LABEL, "")) }
+            .filter { it.isNotEmpty() && it.none(Char::isDigit) }
+            .distinct()
+            .take(limit)
+            .toList()
+
+    private fun meaningParts(liHtml: String): List<String> =
+        cleanText(liHtml).substringBefore('◆').replace(PARENTHESES, "").split(SPLIT)
+            .map { it.trim().trim('.', ' ').replace(STRESS, "") }
+
+    private val LABEL = Regex("<span class=\"label[^\"]*\"[^>]*>.*?</span>", RegexOption.DOT_MATCHES_ALL)
+    private const val STRESS = "\u0301"
+
+    private fun cleanText(html: String): String =
+        html.replace(TAG, "")
+            .replace("&#160;", " ").replace("&nbsp;", " ").replace("&#9670;", "◆")
+            .replace("&amp;", "&").replace("&#39;", "'").replace("&quot;", "\"")
+            .replace(Regex("\\s+"), " ")
+            .trim()
 
     private val IPA_SPAN = Regex("class=\"IPA[^\"]*\">([^<]+)<")
 
@@ -53,4 +145,25 @@ object WiktionaryParsing {
         val chosen = sources.firstOrNull { it.contains(".mp3", ignoreCase = true) } ?: sources.firstOrNull()
         return chosen?.let { if (it.startsWith("//")) "https:$it" else it }
     }
+
+    private val RUSSIAN_TRANSLATION_SPAN = Regex("<span class=\"Cyrl\" lang=\"ru\">([\\s\\S]*?)</span>")
+    private val HTML_TAG = Regex("<[^>]+>")
+    private const val COMBINING_ACUTE_ACCENT = "́" // Wiktionary marks stress with this
+
+    /**
+     * Every Russian headword listed in a "Translations" section's rendered HTML (there can be
+     * several — one per gloss/near-synonym in that table), stripped of the inner `<a>` markup
+     * and stress-mark diacritics Wiktionary adds to the Cyrillic text.
+     */
+    fun extractRussianTranslations(html: String): List<String> =
+        RUSSIAN_TRANSLATION_SPAN.findAll(html)
+            .map {
+                it.groupValues[1]
+                    .replace(HTML_TAG, "")
+                    .replace(COMBINING_ACUTE_ACCENT, "")
+                    .trim()
+            }
+            .filter(String::isNotBlank)
+            .distinct()
+            .toList()
 }

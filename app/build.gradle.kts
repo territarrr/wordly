@@ -14,8 +14,8 @@ android {
         applicationId = "com.wordly.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -23,7 +23,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
@@ -48,9 +49,18 @@ android {
         }
     }
 
+    sourceSets {
+        // Exported Room schemas, so MigrationTestHelper can rebuild old versions in androidTest.
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    }
+
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
+}
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {
@@ -60,6 +70,9 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.activity.compose)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.coroutines.play.services)
+    implementation(libs.mlkit.translate)
+    implementation(libs.androidx.work.runtime)
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
