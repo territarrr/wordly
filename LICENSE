@@ -19,9 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-The bundled dictionary app/src/main/assets/freedict_eng_rus.db is derived from
-FreeDict's eng-rus dictionary and is licensed under CC BY-SA 3.0
-(https://creativecommons.org/licenses/by-sa/3.0/), not under the MIT License above.

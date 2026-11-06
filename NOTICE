@@ -1,0 +1,14 @@
+Wordly
+Copyright (c) 2026 territar
+
+The code in this repository is licensed under the MIT License (see LICENSE).
+
+Third-party data
+----------------
+app/src/main/assets/freedict_eng_rus.db is derived from the FreeDict eng-rus dictionary
+(https://freedict.org/, based on WikDict / DBnary / Wiktionary data) by
+scripts/build_freedict_db.py. It is licensed under CC BY-SA 3.0
+(https://creativecommons.org/licenses/by-sa/3.0/), not under the MIT License.
+
+app/src/test/resources/wiktionary/*.html are excerpts of Wiktionary pages
+(https://www.wiktionary.org/, CC BY-SA), used only as test fixtures.
