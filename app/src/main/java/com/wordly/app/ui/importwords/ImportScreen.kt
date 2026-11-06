@@ -56,17 +56,11 @@ fun ImportScreen(
     var sheetUrl by remember { mutableStateOf("") }
     var enrichExisting by remember { mutableStateOf(true) }
 
-    val pickApkg = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) viewModel.importApkg(uri, context.contentResolver, enrichExisting)
+    // One picker for both kinds of file — the view model tells them apart by content.
+    val pickAny = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) viewModel.importFile(uri, context.contentResolver, enrichExisting)
     }
 
-    val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        val text = runCatching {
-            context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-        }.getOrNull()
-        if (text != null) viewModel.importCsv(text) else viewModel.reportReadError()
-    }
 
     Scaffold(
         topBar = {
@@ -87,10 +81,10 @@ fun ImportScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Из Anki или 2Books", style = MaterialTheme.typography.titleMedium)
+            Text("Из файла", style = MaterialTheme.typography.titleMedium)
             Text(
-                "Файл .apkg — например, экспорт словаря из 2Books. Новые слова встанут в очередь «новых» " +
-                    "с переводом, транскрипцией и примером из книги в заметке.",
+                "Файл Anki .apkg (например, экспорт словаря из 2Books) или таблица .csv. Новые слова встанут " +
+                    "в очередь «новых»; из 2Books — с транскрипцией и примером из книги в заметке.",
                 style = MaterialTheme.typography.bodyMedium,
             )
             Row(
@@ -106,14 +100,14 @@ fun ImportScreen(
                 )
             }
             Button(
-                onClick = { pickApkg.launch("*/*") },
+                onClick = { pickAny.launch("*/*") },
                 enabled = !state.importing,
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Выбрать файл .apkg") }
+            ) { Text("Выбрать файл (.apkg или .csv)") }
 
             HorizontalDivider()
 
-            Text("Из таблицы", style = MaterialTheme.typography.titleMedium)
+            Text("По ссылке на Google Таблицу", style = MaterialTheme.typography.titleMedium)
             Text(
                 "Колонки (в этом порядке): слово, транскрипция, перевод. Строку-заголовок " +
                     "(\"Слово\"/\"Word\") можно оставить — распознаётся и пропускается сама.",
@@ -134,14 +128,6 @@ fun ImportScreen(
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Импортировать по ссылке") }
 
-            HorizontalDivider()
-
-            Text("Или выберите CSV-файл, скачанный на устройство:", style = MaterialTheme.typography.bodyMedium)
-            Button(
-                onClick = { pickFile.launch("*/*") },
-                enabled = !state.importing,
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Выбрать файл") }
 
             if (state.importing) {
                 CircularProgressIndicator()

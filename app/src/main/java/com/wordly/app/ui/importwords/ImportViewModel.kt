@@ -25,8 +25,24 @@ class ImportViewModel(
     private val profileId: Long,
 ) : ViewModel() {
 
+    /**
+     * One entry point for any picked file: what it is is decided by its content, not by which
+     * button was used — a zip (".apkg") goes to the Anki import, readable text to the CSV import,
+     * and anything else is refused. (Reading an .apkg as CSV once filled a dictionary with
+     * hundreds of rows of binary garbage.)
+     */
+    fun importFile(uri: Uri, resolver: ContentResolver, enrichExisting: Boolean) {
+        val bytes = runCatching { resolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+        when {
+            bytes == null -> reportReadError()
+            ImportFormat.isZip(bytes) -> importApkg(uri, resolver, enrichExisting)
+            else -> ImportFormat.decodeText(bytes)?.let(::importCsv)
+                ?: _state.update { ImportUiState(error = "Это не CSV и не файл Anki (.apkg) — такой файл не импортировать") }
+        }
+    }
+
     /** Anki package (.apkg), e.g. a 2Books export — see [com.wordly.app.domain.AnkiImport]. */
-    fun importApkg(uri: Uri, resolver: ContentResolver, enrichExisting: Boolean) {
+    private fun importApkg(uri: Uri, resolver: ContentResolver, enrichExisting: Boolean) {
         _state.update { ImportUiState(importing = true) }
         viewModelScope.launch {
             runCatching { ankiReader.read(uri, resolver) }.fold(
@@ -68,4 +84,25 @@ class ImportViewModel(
         }
 
     fun reportReadError() = _state.update { ImportUiState(error = "Не удалось прочитать файл") }
+}
+
+/** Content sniffing for imported files. */
+internal object ImportFormat {
+
+    /** Zip local-file header "PK\u0003\u0004" — what every .apkg starts with. */
+    fun isZip(bytes: ByteArray): Boolean =
+        bytes.size >= 4 && bytes[0] == 'P'.code.toByte() && bytes[1] == 'K'.code.toByte() &&
+            bytes[2] == 3.toByte() && bytes[3] == 4.toByte()
+
+    /**
+     * [bytes] as UTF-8 text, or `null` if it isn't text: NUL bytes or undecodable sequences
+     * mean a binary file, which must never be parsed as CSV rows.
+     */
+    fun decodeText(bytes: ByteArray): String? {
+        if (bytes.any { it == 0.toByte() }) return null
+        val decoder = Charsets.UTF_8.newDecoder()
+            .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+            .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+        return runCatching { decoder.decode(java.nio.ByteBuffer.wrap(bytes)).toString() }.getOrNull()?.removePrefix("\uFEFF")
+    }
 }
