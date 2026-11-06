@@ -25,6 +25,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Checkbox
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -42,12 +48,17 @@ fun ImportScreen(
     profileId: Long,
     onDone: () -> Unit,
     viewModel: ImportViewModel = viewModel(key = "import-$profileId") {
-        ImportViewModel(container.repository, profileId)
+        ImportViewModel(container.repository, container.ankiReader, profileId)
     },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var sheetUrl by remember { mutableStateOf("") }
+    var enrichExisting by remember { mutableStateOf(true) }
+
+    val pickApkg = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) viewModel.importApkg(uri, context.contentResolver, enrichExisting)
+    }
 
     val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -72,9 +83,37 @@ fun ImportScreen(
         Column(
             modifier = Modifier
                 .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            Text("Из Anki или 2Books", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Файл .apkg — например, экспорт словаря из 2Books. Новые слова встанут в очередь «новых» " +
+                    "с переводом, транскрипцией и примером из книги в заметке.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { enrichExisting = !enrichExisting },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(checked = enrichExisting, onCheckedChange = { enrichExisting = it })
+                Text(
+                    "Дописать пример и транскрипцию к словам, которые уже есть (переводы не меняются)",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            Button(
+                onClick = { pickApkg.launch("*/*") },
+                enabled = !state.importing,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Выбрать файл .apkg") }
+
+            HorizontalDivider()
+
+            Text("Из таблицы", style = MaterialTheme.typography.titleMedium)
             Text(
                 "Колонки (в этом порядке): слово, транскрипция, перевод. Строку-заголовок " +
                     "(\"Слово\"/\"Word\") можно оставить — распознаётся и пропускается сама.",
@@ -117,6 +156,12 @@ fun ImportScreen(
                         "Пропущено (уже есть в словаре): ${result.duplicates}",
                         style = MaterialTheme.typography.bodyMedium,
                     )
+                    if (result.enriched > 0) {
+                        Text(
+                            "Дописан пример или транскрипция: ${result.enriched}",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
                     if (result.missingWord > 0) {
                         Text(
                             "Пропущено (не указано слово): ${result.missingWord}",

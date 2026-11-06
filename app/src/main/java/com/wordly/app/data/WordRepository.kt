@@ -11,7 +11,9 @@ import com.wordly.app.data.remote.TranslationApi
 import com.wordly.app.data.remote.WiktionaryApi
 import com.wordly.app.data.remote.WiktionaryParsing
 import com.wordly.app.data.remote.WordLookup
+import com.wordly.app.domain.AnkiImport
 import com.wordly.app.domain.CsvExport
+import com.wordly.app.domain.CsvParseResult
 import com.wordly.app.domain.CsvImport
 import com.wordly.app.domain.GoogleSheetsUrl
 import com.wordly.app.domain.LearningEngine
@@ -39,6 +41,8 @@ data class ImportResult(
     val duplicates: Int,
     val missingWord: Int,
     val missingTranslation: Int,
+    /** Already-saved words that got a missing note/transcription filled in from the import. */
+    val enriched: Int = 0,
 )
 
 class WordRepository(
@@ -214,34 +218,57 @@ class WordRepository(
      * order, same as [addWord]; duplicates (by [LearningEngine.normalize]) are silently skipped
      * rather than treated as an error, since importing the same sheet twice should be harmless.
      */
-    suspend fun importCsv(profileId: Long, csv: String): ImportResult {
-        val parsed = CsvImport.parse(csv)
-        var imported = 0
-        var duplicates = 0
+    suspend fun importCsv(profileId: Long, csv: String): ImportResult =
+        importWords(profileId, CsvImport.parse(csv), enrichExisting = false)
+
+    /** Imports an Anki package's notes — see [AnkiImport] (2Books exports included). */
+    suspend fun importAnki(profileId: Long, notes: List<AnkiImport.Note>, enrichExisting: Boolean): ImportResult =
+        importWords(profileId, AnkiImport.toWords(notes), enrichExisting)
+
+    /**
+     * Appends every parsed word that isn't already saved, in order, at the end of the addition
+     * order (so they're all "new"). With [enrichExisting], words that *are* already saved get a
+     * missing note / transcription filled in — never their translation or anything already set.
+     * Done as two bulk writes, since an import can be thousands of words.
+     */
+    private suspend fun importWords(profileId: Long, parsed: CsvParseResult, enrichExisting: Boolean): ImportResult {
+        val existing = wordDao.getAllOrdered(profileId).associateBy { it.normalized }
+        var nextOrder = wordDao.maxOrderIndex(profileId)
+        val toInsert = mutableListOf<Word>()
+        val toUpdate = mutableListOf<Word>()
         for (row in parsed.words) {
             val normalized = LearningEngine.normalize(row.text)
-            if (wordDao.findByNormalized(profileId, normalized) != null) {
-                duplicates++
+            val saved = existing[normalized]
+            if (saved != null) {
+                if (enrichExisting) {
+                    val enriched = saved.copy(
+                        note = saved.note ?: row.note,
+                        transcription = saved.transcription ?: row.transcription?.trim()?.ifEmpty { null },
+                    )
+                    if (enriched != saved) toUpdate += enriched
+                }
                 continue
             }
-            wordDao.insert(
-                Word(
-                    profileId = profileId,
-                    orderIndex = wordDao.maxOrderIndex(profileId) + 1,
-                    text = row.text.trim(),
-                    normalized = normalized,
-                    translation = row.translation.trim(),
-                    transcription = row.transcription?.trim()?.ifEmpty { null },
-                    audioUrl = null,
-                ),
+            if (toInsert.any { it.normalized == normalized }) continue
+            toInsert += Word(
+                profileId = profileId,
+                orderIndex = ++nextOrder,
+                text = row.text.trim(),
+                normalized = normalized,
+                translation = row.translation.trim(),
+                transcription = row.transcription?.trim()?.ifEmpty { null },
+                audioUrl = null,
+                note = row.note,
             )
-            imported++
         }
+        wordDao.insertAll(toInsert)
+        wordDao.updateAll(toUpdate)
         return ImportResult(
-            imported = imported,
-            duplicates = duplicates,
+            imported = toInsert.size,
+            duplicates = parsed.words.size - toInsert.size,
             missingWord = parsed.missingWord,
             missingTranslation = parsed.missingTranslation,
+            enriched = toUpdate.size,
         )
     }
 

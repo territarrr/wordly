@@ -34,6 +34,9 @@ interface WordDao {
     @Update
     suspend fun update(word: Word)
 
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertAll(words: List<Word>)
+
     @Query("UPDATE words SET isFavorite = :isFavorite WHERE id = :id")
     suspend fun setFavorite(id: Long, isFavorite: Boolean)
 

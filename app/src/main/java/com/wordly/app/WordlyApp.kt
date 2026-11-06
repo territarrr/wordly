@@ -6,6 +6,7 @@ import androidx.room.Room
 import com.wordly.app.audio.AudioPlayer
 import com.wordly.app.audio.Pronouncer
 import com.wordly.app.audio.Speaker
+import com.wordly.app.data.AnkiPackageReader
 import com.wordly.app.data.AppSettings
 import com.wordly.app.data.ProfilePreferences
 import com.wordly.app.data.WordRepository
@@ -126,4 +127,6 @@ class AppContainer(context: Context) {
     val profilePreferences = ProfilePreferences(context)
 
     val settings = AppSettings(context)
+
+    val ankiReader = AnkiPackageReader(context)
 }

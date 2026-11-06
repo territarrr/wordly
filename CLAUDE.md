@@ -192,6 +192,15 @@ failures must never block saving a word, and are surfaced via `lookupResultMessa
 came back, since claiming "transcription loaded" when only audio did is exactly the kind of
 inaccuracy that caused confusion before.
 
+### Anki / 2Books import
+
+`data/AnkiPackageReader` unzips an `.apkg` (only `collection.anki21`/`collection.anki2`, to a
+fixed cache path), reads note-type field names (`col.models` JSON, or the newer `fields` table)
+and notes; `domain/AnkiImport` maps them. 2Books exports every word twice (EN→RU and a mirrored
+RU→EN note), so the foreign side is whichever field isn't Cyrillic and the mirror dedupes away.
+`WordRepository.importWords` appends new words in bulk and can fill a missing note/transcription
+on already-saved ones — it never touches their translation.
+
 ### Screens
 
 Compose Navigation graph (`ui/nav/WordlyNavHost.kt`): `home` ↔ `words` (list, with a

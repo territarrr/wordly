@@ -5,6 +5,8 @@ data class ImportedWord(
     val text: String,
     val transcription: String?,
     val translation: String,
+    /** Example sentence etc. — only Anki imports carry one. */
+    val note: String? = null,
 )
 
 /**
