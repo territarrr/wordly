@@ -1,5 +1,7 @@
 # Wordly
 
+[![CI](https://github.com/territarrr/wordly/actions/workflows/ci.yml/badge.svg)](https://github.com/territarrr/wordly/actions/workflows/ci.yml)
+
 Android-приложение для заучивания иностранных слов с русским переводом — английских и сербских.
 Свой словарь, карточки, интервальные повторения, несколько режимов ответа и ежедневное напоминание.
 
@@ -48,6 +50,18 @@ Android-приложение для заучивания иностранных 
 
 `minSdk 26`, `targetSdk 35`. Kotlin, Jetpack Compose, Room, WorkManager, Retrofit, ML Kit.
 Устройство кода описано в [CLAUDE.md](CLAUDE.md).
+
+## Релизы
+
+Готовый APK лежит на странице [Releases](https://github.com/territarrr/wordly/releases).
+Релиз собирается сам: `git tag v1.3 && git push origin v1.3` → GitHub Actions соберёт
+подписанный release-APK (с R8) и приложит его к релизу. Каждый push в `main` проходит CI
+(юнит-тесты + debug-APK).
+
+Подпись: ключ `~/.android/wordly-release.jks` и пароли в `keystore.properties` хранятся вне git;
+в GitHub они загружаются один раз как секреты скриптом `scripts/set_release_secrets.sh`.
+Ключ нужно беречь: без него нельзя выпустить обновление, которое встанет поверх уже
+установленного релиза.
 
 ## Источники данных
 

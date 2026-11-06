@@ -12,3 +12,8 @@ local.properties
 *.keystore
 !debug.keystore
 /app/build/
+
+# Release signing secrets
+keystore.properties
+*.jks
+*.keystore

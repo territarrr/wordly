@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -5,6 +7,16 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
 }
+
+/**
+ * Release signing: from environment variables on CI (the keystore decoded from a repository
+ * secret), or from the untracked keystore.properties locally. Without either, release builds
+ * stay unsigned — debug builds are unaffected.
+ */
+val keystoreProperties = Properties().apply {
+    rootProject.file("keystore.properties").takeIf { it.exists() }?.inputStream()?.use(::load)
+}
+fun signingValue(property: String, env: String): String? = System.getenv(env) ?: keystoreProperties.getProperty(property)
 
 android {
     namespace = "com.wordly.app"
@@ -14,15 +26,25 @@ android {
         applicationId = "com.wordly.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }
 
+    signingConfigs {
+        create("release") {
+            signingValue("storeFile", "WORDLY_KEYSTORE_PATH")?.let { storeFile = file(it) }
+            storePassword = signingValue("storePassword", "WORDLY_KEYSTORE_PASSWORD")
+            keyAlias = signingValue("keyAlias", "WORDLY_KEY_ALIAS")
+            keyPassword = signingValue("keyPassword", "WORDLY_KEY_PASSWORD")
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.getByName("release").takeIf { it.storeFile != null }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

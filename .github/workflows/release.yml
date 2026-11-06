@@ -1,0 +1,58 @@
+name: Release
+
+# Push a tag like v1.2 → a signed, minified release APK attached to a GitHub Release.
+# Signing material comes from repository secrets (never from the repo):
+#   WORDLY_KEYSTORE_BASE64, WORDLY_KEYSTORE_PASSWORD, WORDLY_KEY_ALIAS, WORDLY_KEY_PASSWORD
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Check signing secrets
+        env:
+          KEYSTORE_BASE64: ${{ secrets.WORDLY_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::Signing secrets are not set — see README, 'Релизы'."
+            exit 1
+          fi
+
+      - name: Unit tests
+        run: ./gradlew :app:testDebugUnitTest
+
+      - name: Decode signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.WORDLY_KEYSTORE_BASE64 }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/wordly-release.jks"
+          echo "WORDLY_KEYSTORE_PATH=$RUNNER_TEMP/wordly-release.jks" >> "$GITHUB_ENV"
+
+      - name: Signed release APK
+        env:
+          WORDLY_KEYSTORE_PASSWORD: ${{ secrets.WORDLY_KEYSTORE_PASSWORD }}
+          WORDLY_KEY_ALIAS: ${{ secrets.WORDLY_KEY_ALIAS }}
+          WORDLY_KEY_PASSWORD: ${{ secrets.WORDLY_KEY_PASSWORD }}
+        run: |
+          ./gradlew :app:assembleRelease --stacktrace
+          cp app/build/outputs/apk/release/app-release.apk "wordly-${GITHUB_REF_NAME}.apk"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" "wordly-${GITHUB_REF_NAME}.apk" --title "Wordly ${GITHUB_REF_NAME}" --generate-notes

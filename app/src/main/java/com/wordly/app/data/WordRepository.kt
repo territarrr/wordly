@@ -212,7 +212,8 @@ class WordRepository(
 
     // ---- Full backup (see data/backup/Backup.kt) ----
 
-    private val backupJson = Json { ignoreUnknownKeys = true; prettyPrint = false }
+    // encodeDefaults: "app"/"version" must be in the file, or any JSON would pass as a backup.
+    private val backupJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
     /** Every profile's words, progress and study log as one JSON document. */
     suspend fun exportBackup(now: Long = System.currentTimeMillis()): String =
@@ -228,6 +229,8 @@ class WordRepository(
 
     /** Parses and checks a backup without changing anything — for the "replace N words?" confirmation. */
     fun readBackup(json: String): BackupFile {
+        // A real backup always carries "app" — don't let the decoder's default fill it in.
+        if (!json.contains("\"app\"")) throw IllegalArgumentException("Это не резервная копия Wordly")
         val file = runCatching { backupJson.decodeFromString(BackupFile.serializer(), json) }
             .getOrElse { throw IllegalArgumentException("Это не резервная копия Wordly") }
         require(file.app == BackupFile.APP_ID) { "Это не резервная копия Wordly" }
