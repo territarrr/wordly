@@ -30,6 +30,9 @@ import java.time.LocalDate
 /** Thrown by [WordRepository.addWord]/[WordRepository.updateWord] when the word already exists. */
 class DuplicateWordException(val word: String) : Exception("Word already exists: $word")
 
+/** Serbian lookup result: Russian candidates, and the word with its stressed syllable marked ("hvála"). */
+data class SerbianLookup(val translations: List<String>, val stressed: String?)
+
 /** Outcome of [WordRepository.importCsv]. */
 data class ImportResult(
     val imported: Int,
@@ -377,7 +380,14 @@ class WordRepository(
      */
     suspend fun lookupTranslationOnly(sourceLanguageCode: String, word: String): Result<List<String>> = coroutineScope {
         val trimmed = word.trim()
-        if (sourceLanguageCode == "sr") return@coroutineScope lookupSerbianTranslations(trimmed)
+        if (sourceLanguageCode == "sr") {
+            val serbian = lookupSerbian(trimmed)
+            return@coroutineScope if (serbian.translations.isNotEmpty()) {
+                Result.success(serbian.translations)
+            } else {
+                Result.failure(NoSuchElementException("No translation found for \"$trimmed\""))
+            }
+        }
         val mlKitDeferred = async { mlKitTranslator.translate(sourceLanguageCode, "ru", trimmed) }
         val myMemoryDeferred = async {
             runCatching { translationApi.translate(trimmed, "$sourceLanguageCode|ru") }
@@ -405,8 +415,13 @@ class WordRepository(
      * why they're the only ones here (see [lookupTranslationOnly]'s doc): neither FreeDict nor the
      * Wiktionary parsing in this file is reversible starting from a Russian headword.
      */
-    suspend fun lookupReverseTranslation(targetLanguageCode: String, word: String): Result<List<String>> = coroutineScope {
+    suspend fun lookupReverseTranslation(
+        targetLanguageCode: String,
+        word: String,
+        preferCyrillic: Boolean = false,
+    ): Result<List<String>> = coroutineScope {
         val trimmed = word.trim()
+        if (targetLanguageCode == "sr") return@coroutineScope lookupReverseSerbian(trimmed, preferCyrillic)
         val mlKitDeferred = async { mlKitTranslator.translate("ru", targetLanguageCode, trimmed) }
         val myMemoryDeferred = async {
             runCatching { translationApi.translate(trimmed, "ru|$targetLanguageCode") }
@@ -438,17 +453,27 @@ class WordRepository(
      * 4. MyMemory only if all of the above came back empty.
      * Each dictionary is tried with the word as typed and in the other script (see [SerbianScript]).
      */
-    private suspend fun lookupSerbianTranslations(word: String): Result<List<String>> = coroutineScope {
+    suspend fun lookupSerbian(word: String): SerbianLookup = coroutineScope {
         val variants = SerbianScript.variants(word)
         val latin = variants.first { !SerbianScript.isCyrillic(it) }
         val ruDeferred = async { runCatching { firstNonEmpty(variants) { fetchSerbianFromRuWiktionary(it) } }.getOrDefault(emptyList()) }
-        val enDeferred = async { runCatching { firstNonEmpty(variants) { fetchSerbianGlossesFromEnWiktionary(it) } }.getOrDefault(emptyList()) }
+        val enDeferred = async {
+            runCatching {
+                variants.firstNotNullOfOrNull { variant -> fetchSerbianFromEnWiktionary(variant).takeIf { it.isNotEmpty() } }
+            }.getOrNull() ?: EnSerbianEntry(emptyList(), null)
+        }
         val croatianDeferred = async { mlKitQuick("hr", latin) }
+        val en = enDeferred.await()
+        val stressed = en.headword
+            ?.let(SerbianScript::simplifyAccent)
+            ?.let { if (SerbianScript.isCyrillic(word) != SerbianScript.isCyrillic(it)) convertScript(it, toCyrillic = SerbianScript.isCyrillic(word)) else it }
+            // Only if it really is this word (a page can redirect to a related lemma).
+            ?.takeIf { LearningEngine.normalize(SerbianScript.stripAccents(it)) == LearningEngine.normalize(word) }
 
         // The first gloss is the main sense: two dictionary answers for it, one for the rarer rest.
         // FreeDict is useless for tiny function words ("it" → "ИТ, ай-ти"), and ML Kit on a lone
         // English word guesses wildly ("nice" → "Ницца"), so ML Kit only fills in where FreeDict can't.
-        val glossTranslations = enDeferred.await().take(3).mapIndexed { i, gloss ->
+        val glossTranslations = en.glosses.take(3).mapIndexed { i, gloss ->
             async {
                 val dictionary = if (gloss.length <= 3) emptyList() else freeDictTranslator.translate(gloss).take(if (i == 0) 2 else 1)
                 dictionary.ifEmpty { listOfNotNull(mlKitQuick("en", gloss)) }
@@ -463,15 +488,49 @@ class WordRepository(
             .filter(::hasCyrillic) // drops untranslated echoes like "sanely"
         val byVotes = assisted.groupingBy { it }.eachCount().let { votes -> assisted.distinct().sortedByDescending { votes[it] } }
         val ranked = TranslationRanking.rank(ru + byVotes, limit = 8, sourceWord = word, keepOrder = true)
-        if (ranked.isNotEmpty()) return@coroutineScope Result.success(ranked)
+        if (ranked.isNotEmpty()) return@coroutineScope SerbianLookup(ranked, stressed)
 
         val myMemory = runCatching { translationApi.translate(word, "sr|ru") }
         val fallback = listOfNotNull(myMemory.getOrNull()?.responseData?.translatedText)
-        if (fallback.isNotEmpty()) {
-            Result.success(TranslationRanking.rank(fallback, sourceWord = word))
-        } else {
-            Result.failure(myMemory.exceptionOrNull() ?: NoSuchElementException("No translation found for \"$word\""))
-        }
+        SerbianLookup(TranslationRanking.rank(fallback, sourceWord = word), stressed)
+    }
+
+    /** Transliterates [text] keeping its combining stress mark on the right letter. */
+    private fun convertScript(text: String, toCyrillic: Boolean): String {
+        val decomposed = java.text.Normalizer.normalize(text, java.text.Normalizer.Form.NFD)
+        val converted = if (toCyrillic) SerbianScript.toCyrillic(decomposed) else SerbianScript.toLatin(decomposed)
+        return java.text.Normalizer.normalize(converted, java.text.Normalizer.Form.NFC)
+    }
+
+    /**
+     * Russian → Serbian candidates for the "Слово" field: the Serbian rows of ru.wiktionary's
+     * "Перевод" table for that Russian word, plus ML Kit Russian→Croatian (no Serbian model
+     * exists; Croatian Latin spelling is shared with Serbian for most words). Returned in the
+     * script most of the profile's words use. MyMemory only if both come back empty.
+     */
+    private suspend fun lookupReverseSerbian(word: String, preferCyrillic: Boolean): Result<List<String>> = coroutineScope {
+        val wiktionaryDeferred = async { runCatching { fetchSerbianFromRuEntry(word.lowercase()) }.getOrDefault(emptyList()) }
+        val croatianDeferred = async { withTimeoutOrNull(ML_KIT_TIMEOUT_MS) { mlKitTranslator.translate("ru", "hr", word) } }
+        val raw = wiktionaryDeferred.await() + listOfNotNull(croatianDeferred.await()?.lowercase())
+        val inScript = raw.map { if (SerbianScript.isCyrillic(it) == preferCyrillic) it else convertScript(it, preferCyrillic) }
+        val ranked = TranslationRanking.rank(inScript, limit = 6, keepOrder = true)
+        if (ranked.isNotEmpty()) return@coroutineScope Result.success(ranked)
+
+        val myMemory = runCatching { translationApi.translate(word, "ru|sr") }
+        val fallback = listOfNotNull(myMemory.getOrNull()?.responseData?.translatedText)
+        if (fallback.isNotEmpty()) Result.success(TranslationRanking.rank(fallback)) else Result.failure(NoSuchElementException(word))
+    }
+
+    private suspend fun fetchSerbianFromRuEntry(russian: String): List<String> {
+        val sections = ruWiktionaryApi.sections(russian).parse?.sections.orEmpty()
+        val index = WiktionaryParsing.findSubsectionIndex(sections, setOf("Русский"), "Перевод") ?: return emptyList()
+        return WiktionaryParsing.extractSerbianTranslations(ruWiktionaryApi.sectionHtml(russian, index).parse?.text.orEmpty())
+    }
+
+    /** True when most of the profile's words are written in Cyrillic (Serbian can be either). */
+    suspend fun prefersCyrillic(profileId: Long): Boolean {
+        val words = wordDao.getAllOrdered(profileId)
+        return words.count { SerbianScript.isCyrillic(it.text) } * 2 > words.size
     }
 
     /**
@@ -500,11 +559,19 @@ class WordRepository(
         return WiktionaryParsing.extractRussianMeanings(html)
     }
 
-    private suspend fun fetchSerbianGlossesFromEnWiktionary(word: String): List<String> {
+    private data class EnSerbianEntry(val glosses: List<String>, val headword: String?) {
+        fun isNotEmpty() = glosses.isNotEmpty() || headword != null
+    }
+
+    /** English glosses and the accented headword from en.wiktionary's "Serbo-Croatian" section. */
+    private suspend fun fetchSerbianFromEnWiktionary(word: String): EnSerbianEntry {
         val sections = wiktionaryApi.sections(word).parse?.sections.orEmpty()
-        val index = WiktionaryParsing.findLanguageSectionIndex(sections, "Serbo-Croatian") ?: return emptyList()
+        val index = WiktionaryParsing.findLanguageSectionIndex(sections, "Serbo-Croatian") ?: return EnSerbianEntry(emptyList(), null)
         val html = wiktionaryApi.sectionHtml(word, index).parse?.text.orEmpty()
-        return WiktionaryParsing.extractEnglishGlosses(html)
+        return EnSerbianEntry(
+            glosses = WiktionaryParsing.extractEnglishGlosses(html),
+            headword = WiktionaryParsing.extractSerboCroatianHeadword(html, cyrillic = SerbianScript.isCyrillic(word)),
+        )
     }
 
     private companion object {

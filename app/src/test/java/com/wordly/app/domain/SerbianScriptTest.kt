@@ -28,4 +28,20 @@ class SerbianScriptTest {
         assertTrue(SerbianScript.isCyrillic("здраво"))
         assertFalse(SerbianScript.isCyrillic("zdravo"))
     }
+
+    @Test
+    fun `tone accents become a plain stress mark, length marks go`() {
+        assertEquals("u\u0301jak", java.text.Normalizer.normalize(SerbianScript.simplifyAccent("ȕjāk"), java.text.Normalizer.Form.NFD))
+        assertEquals("hvála", SerbianScript.simplifyAccent("hvála"))
+        assertEquals("óno", SerbianScript.simplifyAccent("òno"))
+        assertEquals("ку\u0301ћа", SerbianScript.simplifyAccent("ку\u030Fћа"))
+        assertEquals("kúća", SerbianScript.simplifyAccent("kȕća"))
+    }
+
+    @Test
+    fun `stripAccents keeps letters like c-caron`() {
+        assertEquals("kuća", SerbianScript.stripAccents("kȕća"))
+        assertEquals("ujak", SerbianScript.stripAccents("ȕjāk"))
+        assertEquals("čaša", SerbianScript.stripAccents("čȁša"))
+    }
 }

@@ -45,4 +45,16 @@ class SerbianWiktionaryParsingTest {
         assertEquals("5", WiktionaryParsing.findSubsectionIndex(sections, setOf("Сербский", "Хорватский"), "Значение"))
         assertEquals("3", WiktionaryParsing.findLanguageSectionIndex(sections, "Хорватский"))
     }
+
+    @Test
+    fun `accented headword in the requested script`() {
+        assertEquals("hvála", WiktionaryParsing.extractSerboCroatianHeadword(fixture("en_hvala"), cyrillic = false))
+        assertEquals("ȕjāk", WiktionaryParsing.extractSerboCroatianHeadword(fixture("en_ujak"), cyrillic = false))
+        assertEquals("òno", WiktionaryParsing.extractSerboCroatianHeadword(fixture("en_ono"), cyrillic = false))
+    }
+
+    @Test
+    fun `serbian rows from a russian entry's translation table`() {
+        assertEquals(listOf("кућа"), WiktionaryParsing.extractSerbianTranslations(fixture("ru_dom_perevod")))
+    }
 }

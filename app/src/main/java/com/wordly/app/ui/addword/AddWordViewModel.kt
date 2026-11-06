@@ -187,9 +187,10 @@ class AddWordViewModel(
                     )
                 }
             } else {
-                val translations = repository
-                    .lookupTranslationOnly(profile.translateLanguageCode, word)
-                    .getOrDefault(emptyList())
+                // Serbian: translations plus the word with its stressed syllable marked ("hvála"),
+                // kept in the transcription field.
+                val found = repository.lookupSerbian(word)
+                val translations = found.translations
                 _state.update { current ->
                     current.copy(
                         looking = false,
@@ -197,10 +198,8 @@ class AddWordViewModel(
                         translationOptions = translations,
                         translation = current.refilledTranslation(translations),
                         autoFilledTranslation = translations.firstOrNull(),
-                        message = when {
-                            translations.isNotEmpty() -> "Загружено: перевод"
-                            else -> "Не удалось получить перевод — введите вручную"
-                        },
+                        transcription = found.stressed ?: current.transcription,
+                        message = serbianLookupMessage(translations.isNotEmpty(), found.stressed != null),
                     )
                 }
             }
@@ -221,7 +220,11 @@ class AddWordViewModel(
         _state.update { it.copy(looking = true, message = null) }
         viewModelScope.launch {
             val options = repository
-                .lookupReverseTranslation(profile.translateLanguageCode, translation)
+                .lookupReverseTranslation(
+                    profile.translateLanguageCode,
+                    translation,
+                    preferCyrillic = repository.prefersCyrillic(profileId),
+                )
                 .getOrDefault(emptyList())
             _state.update {
                 it.copy(
@@ -324,4 +327,12 @@ internal fun lookupResultMessage(
     }
     return "Загружено: ${loaded.joinToString(", ")}" +
         if (missing.isEmpty()) "" else ". Не найдено: ${missing.joinToString(", ")}"
+}
+
+/** Same honesty rule as [lookupResultMessage], for Serbian's translation + stress lookup. */
+internal fun serbianLookupMessage(gotTranslations: Boolean, gotStress: Boolean): String = when {
+    gotTranslations && gotStress -> "Загружено: перевод, ударение"
+    gotTranslations -> "Загружено: перевод. Ударение не найдено"
+    gotStress -> "Загружено: ударение. Перевод не найден — введите вручную"
+    else -> "Не удалось получить данные — введите вручную"
 }

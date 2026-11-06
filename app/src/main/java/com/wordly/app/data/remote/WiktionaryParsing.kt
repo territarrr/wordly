@@ -106,6 +106,33 @@ object WiktionaryParsing {
         cleanText(liHtml).substringBefore('◆').replace(PARENTHESES, "").split(SPLIT)
             .map { it.trim().trim('.', ' ').replace(STRESS, "") }
 
+    private val SH_HEADWORD = Regex("<strong class=\"(Latn|Cyrl) headword\" lang=\"sh\">(.*?)</strong>", RegexOption.DOT_MATCHES_ALL)
+
+    /**
+     * The accented headword of an en.wiktionary "Serbo-Croatian" section in the requested script —
+     * the dictionary spelling with its tone marks, e.g. "hvála", "ȕjāk" (see
+     * [com.wordly.app.domain.SerbianScript.simplifyAccent]).
+     */
+    fun extractSerboCroatianHeadword(html: String, cyrillic: Boolean): String? =
+        SH_HEADWORD.findAll(html)
+            .firstOrNull { (it.groupValues[1] == "Cyrl") == cyrillic }
+            ?.let { cleanText(it.groupValues[2]) }
+            ?.takeIf { it.isNotEmpty() }
+
+    private val SERBIAN_TRANSLATION = Regex("<span lang=\"(sr|sr-Latn|sh)\">(.*?)</span></li>", RegexOption.DOT_MATCHES_ALL)
+
+    /**
+     * Serbian words from the "Перевод" table of a ru.wiktionary Russian entry ("дом" → "кућа"):
+     * the Serbian (Cyrillic or Latin) and Serbo-Croatian rows, comma-split, stress marks removed.
+     */
+    fun extractSerbianTranslations(html: String): List<String> =
+        SERBIAN_TRANSLATION.findAll(html)
+            .flatMap { cleanText(it.groupValues[2]).split(SPLIT) }
+            .map { it.trim().replace(STRESS, "") }
+            .filter { it.isNotEmpty() && it.split(' ').size <= 3 }
+            .distinct()
+            .toList()
+
     private val LABEL = Regex("<span class=\"label[^\"]*\"[^>]*>.*?</span>", RegexOption.DOT_MATCHES_ALL)
     private const val STRESS = "\u0301"
 

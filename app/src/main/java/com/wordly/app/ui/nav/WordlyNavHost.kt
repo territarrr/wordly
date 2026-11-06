@@ -11,6 +11,7 @@ import androidx.navigation.navArgument
 import com.wordly.app.ui.addword.AddWordScreen
 import com.wordly.app.ui.home.HomeScreen
 import com.wordly.app.ui.importwords.ImportScreen
+import com.wordly.app.ui.recheck.RecheckScreen
 import com.wordly.app.ui.session.SessionScreen
 import com.wordly.app.ui.settings.SettingsScreen
 import com.wordly.app.ui.words.WordListScreen
@@ -45,6 +46,17 @@ fun WordlyNavHost() {
                 onAddWord = { navController.navigate(Routes.add(profileId)) },
                 onEditWord = { wordId -> navController.navigate(Routes.edit(wordId, profileId)) },
                 onImport = { navController.navigate(Routes.import(profileId)) },
+                onRecheck = { navController.navigate(Routes.recheck(profileId)) },
+            )
+        }
+
+        composable(
+            route = Routes.RECHECK_PATTERN,
+            arguments = listOf(navArgument("profileId") { type = NavType.LongType }),
+        ) { backStackEntry ->
+            RecheckScreen(
+                profileId = backStackEntry.arguments?.getLong("profileId") ?: 2L,
+                onDone = { navController.popBackStack() },
             )
         }
 

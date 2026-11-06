@@ -178,6 +178,13 @@ mistranslates lone words), plus ML Kit Croatian→Russian; the machine-assisted 
 ordered by how many sources agree. Each page is tried in both scripts (`domain/SerbianScript`),
 ML Kit calls are capped at a few seconds (first use downloads a model), and MyMemory is only a
 last resort. Parsers are tested against saved real HTML in `app/src/test/resources/wiktionary/`.
+For Serbian the word's `transcription` field holds the **stressed form** instead of IPA
+(`Profile.transcriptionLabel` = "Ударение"): en.wiktionary's accented headword ("ȕjāk"),
+reduced by `SerbianScript.simplifyAccent` to a single Russian-style stress mark ("újak").
+Reverse lookup (Russian → Serbian) uses the Serbian rows of ru.wiktionary's "Перевод" table
+plus ML Kit ru→hr, in whichever script most of the profile's words use. The word list's
+"Перепроверить переводы" (`ui/recheck/`, Serbian only) re-runs the lookup over saved words and
+offers fixes for review — it never overwrites a translation unless one is picked.
 
 All three lookups (transcription, audio, translation) run from the add-word screen only —
 failures must never block saving a word, and are surfaced via `lookupResultMessage()`

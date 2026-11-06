@@ -10,6 +10,8 @@ enum class Profile(
     val ttsLanguageTag: String,
     val translateLanguageCode: String,
     val hasTranscriptionLookup: Boolean,
+    /** What the word's `transcription` field holds for this language: IPA for English, stress for Serbian. */
+    val transcriptionLabel: String,
 ) {
     ENGLISH(
         id = 1L,
@@ -17,6 +19,7 @@ enum class Profile(
         ttsLanguageTag = "en-GB",
         translateLanguageCode = "en",
         hasTranscriptionLookup = true,
+        transcriptionLabel = "Транскрипция (IPA)",
     ),
     SERBIAN(
         id = 2L,
@@ -24,6 +27,7 @@ enum class Profile(
         ttsLanguageTag = "sr-RS",
         translateLanguageCode = "sr",
         hasTranscriptionLookup = false,
+        transcriptionLabel = "Ударение",
     ),
     ;
 

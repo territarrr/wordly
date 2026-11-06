@@ -80,6 +80,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.wordly.app.data.entity.Word
+import com.wordly.app.domain.model.Profile
+import androidx.compose.material.icons.filled.Refresh
 import com.wordly.app.domain.LearningEngine
 import com.wordly.app.ui.common.container
 import kotlinx.coroutines.launch
@@ -95,6 +97,7 @@ fun WordListScreen(
     onAddWord: () -> Unit,
     onEditWord: (Long) -> Unit,
     onImport: () -> Unit,
+    onRecheck: () -> Unit,
     viewModel: WordListViewModel = viewModel(key = "words-$profileId") {
         WordListViewModel(container.repository, container.pronouncer, profileId)
     },
@@ -252,6 +255,17 @@ fun WordListScreen(
                                     createDocument.launch("wordly_export.csv")
                                 },
                             )
+                            // Serbian translations saved before the lookup was rebuilt can be poor.
+                            if (profileId == Profile.SERBIAN.id) {
+                                DropdownMenuItem(
+                                    text = { Text("Перепроверить переводы") },
+                                    leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null) },
+                                    onClick = {
+                                        showMenu = false
+                                        onRecheck()
+                                    },
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text("Очистить словарь", color = MaterialTheme.colorScheme.error) },
                                 onClick = {

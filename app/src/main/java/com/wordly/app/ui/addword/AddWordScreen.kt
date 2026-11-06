@@ -204,7 +204,7 @@ fun AddWordScreen(
                         if (viewModel.profile.hasTranscriptionLookup) {
                             "Подтянуть перевод и озвучку"
                         } else {
-                            "Подтянуть перевод"
+                            "Подтянуть перевод и ударение"
                         },
                     )
                 }
@@ -267,11 +267,14 @@ fun AddWordScreen(
                 }
             }
 
-            if (viewModel.profile.hasTranscriptionLookup) {
+            // English: IPA transcription. Serbian: the word with its stressed syllable marked
+            // ("hvála") — same field, different meaning (see Profile.transcriptionLabel).
+            run {
                 OutlinedTextField(
                     value = state.transcription,
                     onValueChange = viewModel::onTranscription,
-                    label = { Text("Транскрипция (IPA)") },
+                    label = { Text(viewModel.profile.transcriptionLabel) },
+                    placeholder = if (viewModel.profile.hasTranscriptionLookup) null else { { Text("например, hvála") } },
                     singleLine = true,
                     trailingIcon = {
                         if (state.audioUrl != null || state.text.isNotBlank()) {
@@ -285,13 +288,6 @@ fun AddWordScreen(
                     },
                     modifier = Modifier.fillMaxWidth(),
                 )
-            } else if (state.text.isNotBlank()) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = viewModel::previewAudio) {
-                        Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = "Прослушать")
-                    }
-                    Text("Прослушать произношение", style = MaterialTheme.typography.bodySmall)
-                }
             }
 
             OutlinedTextField(

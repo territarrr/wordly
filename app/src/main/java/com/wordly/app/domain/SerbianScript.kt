@@ -45,6 +45,47 @@ object SerbianScript {
         }
     }
 
+    private const val ACUTE = '\u0301'
+
+    /** Serbo-Croatian accent marks, all of which sit on the stressed vowel (or syllabic r). */
+    private val TONE_MARKS = setOf('\u0300', '\u0301', '\u030F', '\u0311')
+
+    /**
+     * Turns a dictionary's tonal accent spelling into a plain stress mark, the way Russian
+     * dictionaries mark stress: the four Serbo-Croatian accents (`ò ó ȍ ȏ`) all become an acute on
+     * the stressed vowel, and post-accent length (`ā`) is dropped. "ȕjāk" → "újak", "hvála" stays.
+     */
+    fun simplifyAccent(accented: String): String {
+        val out = StringBuilder()
+        var base = ' '
+        for (ch in java.text.Normalizer.normalize(accented, java.text.Normalizer.Form.NFD)) {
+            val isMark = Character.getType(ch) == Character.NON_SPACING_MARK.toInt()
+            when {
+                !isMark -> { out.append(ch); base = ch.lowercaseChar() }
+                // Over a consonant a mark is part of the letter itself: ć (c + ´), č š ž (+ ˇ).
+                base !in ACCENT_BEARERS -> out.append(ch)
+                ch in TONE_MARKS -> out.append(ACUTE)
+                else -> Unit // post-accent length (ā) and the like
+            }
+        }
+        return java.text.Normalizer.normalize(out.toString(), java.text.Normalizer.Form.NFC)
+    }
+
+    /** Vowels and syllabic r — the only letters Serbo-Croatian accent marks go on. */
+    private val ACCENT_BEARERS = "aeiourаеиоур".toSet()
+
+    /** [text] without any accent marks — but keeping č ć đ š ž, which are letters, not accents. */
+    fun stripAccents(text: String): String {
+        val out = StringBuilder()
+        var base = ' '
+        for (ch in java.text.Normalizer.normalize(simplifyAccent(text), java.text.Normalizer.Form.NFD)) {
+            if (ch == ACUTE && base in ACCENT_BEARERS) continue
+            out.append(ch)
+            if (Character.getType(ch) != Character.NON_SPACING_MARK.toInt()) base = ch.lowercaseChar()
+        }
+        return java.text.Normalizer.normalize(out.toString(), java.text.Normalizer.Form.NFC)
+    }
+
     /** [word] as typed first, then in the other script (if that differs). */
     fun variants(word: String): List<String> {
         val other = if (isCyrillic(word)) toLatin(word) else toCyrillic(word)
