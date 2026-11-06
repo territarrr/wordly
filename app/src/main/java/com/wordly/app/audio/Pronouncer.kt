@@ -12,6 +12,9 @@ class Pronouncer(
 ) {
     fun pronounce(word: Word, languageTag: String) = pronounce(word.text, word.audioUrl, languageTag)
 
+    /** Which on-device voice [languageTag] gets (for words without a dictionary recording); `null` while TTS starts. */
+    fun voiceStatus(languageTag: String): VoiceStatus? = speaker.status(languageTag)
+
     fun pronounce(text: String, audioUrl: String?, languageTag: String) {
         val url = audioUrl?.takeIf { it.isNotBlank() }
         if (url != null) audioPlayer.play(url) else speaker.speak(text, languageTag)

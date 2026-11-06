@@ -1,7 +1,12 @@
 package com.wordly.app.data
 
 import com.wordly.app.data.db.ProgressDao
+import com.wordly.app.data.backup.BackupFile
+import com.wordly.app.data.backup.toBackup
+import com.wordly.app.data.backup.toEntity
+import com.wordly.app.data.db.BackupDao
 import com.wordly.app.data.db.StudyDayDao
+import kotlinx.serialization.json.Json
 import com.wordly.app.data.db.WordDao
 import com.wordly.app.data.entity.StudyDay
 import com.wordly.app.data.entity.Word
@@ -52,6 +57,7 @@ class WordRepository(
     private val wordDao: WordDao,
     private val progressDao: ProgressDao,
     private val studyDayDao: StudyDayDao,
+    private val backupDao: BackupDao,
     private val dictionaryApi: DictionaryApi,
     private val wiktionaryApi: WiktionaryApi,
     private val ruWiktionaryApi: WiktionaryApi,
@@ -202,6 +208,62 @@ class WordRepository(
         wordDao.update(restored)
         studyDayDao.add(profileId, recorded.epochDay, -1)
         return restored
+    }
+
+    // ---- Full backup (see data/backup/Backup.kt) ----
+
+    private val backupJson = Json { ignoreUnknownKeys = true; prettyPrint = false }
+
+    /** Every profile's words, progress and study log as one JSON document. */
+    suspend fun exportBackup(now: Long = System.currentTimeMillis()): String =
+        backupJson.encodeToString(
+            BackupFile.serializer(),
+            BackupFile(
+                exportedAt = now,
+                words = backupDao.allWords().map { it.toBackup() },
+                progress = backupDao.allProgress().map { it.toBackup() },
+                studyDays = backupDao.allStudyDays().map { it.toBackup() },
+            ),
+        )
+
+    /** Parses and checks a backup without changing anything — for the "replace N words?" confirmation. */
+    fun readBackup(json: String): BackupFile {
+        val file = runCatching { backupJson.decodeFromString(BackupFile.serializer(), json) }
+            .getOrElse { throw IllegalArgumentException("Это не резервная копия Wordly") }
+        require(file.app == BackupFile.APP_ID) { "Это не резервная копия Wordly" }
+        require(file.version <= BackupFile.VERSION) { "Копия сделана более новой версией Wordly — обновите приложение" }
+        return file
+    }
+
+    /** Replaces the whole dictionary with [file] in one transaction (all or nothing). */
+    suspend fun restoreBackup(file: BackupFile) {
+        backupDao.replaceAll(
+            words = file.words.map { it.toEntity() },
+            progress = file.progress.map { it.toEntity() },
+            days = file.studyDays.map { it.toEntity() },
+        )
+    }
+
+    // ---- Filling in missing transcriptions (see notify/FillPronunciationWorker) ----
+
+    suspend fun wordsMissingPronunciation(profileId: Long, after: Long, limit: Int): List<Word> =
+        wordDao.missingTranscription(profileId, after, limit)
+
+    suspend fun countMissingPronunciation(profileId: Long, after: Long = 0): Int =
+        wordDao.countMissingTranscription(profileId, after)
+
+    fun observeMissingPronunciation(profileId: Long): Flow<Int> = wordDao.observeMissingTranscription(profileId)
+
+    /** Sets a found transcription/audio only where the word still has none. True if anything changed. */
+    suspend fun fillPronunciation(id: Long, transcription: String?, audioUrl: String?): Boolean {
+        val word = wordDao.getById(id) ?: return false
+        val updated = word.copy(
+            transcription = word.transcription ?: transcription?.trim()?.ifEmpty { null },
+            audioUrl = word.audioUrl ?: audioUrl?.trim()?.ifEmpty { null },
+        )
+        if (updated == word) return false
+        wordDao.update(updated)
+        return true
     }
 
     /** See [Srs.spreadBacklog]; a no-op once every learned word has a schedule. */

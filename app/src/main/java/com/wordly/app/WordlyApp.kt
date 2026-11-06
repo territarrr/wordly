@@ -109,6 +109,7 @@ class AppContainer(context: Context) {
         database.wordDao(),
         database.progressDao(),
         database.studyDayDao(),
+        database.backupDao(),
         dictionaryApi,
         wiktionaryApi,
         ruWiktionaryApi,

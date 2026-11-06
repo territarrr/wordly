@@ -68,6 +68,10 @@ class WordListViewModel(
 
     fun clearAllWords() = viewModelScope.launch { repository.clearAllWords(profileId) }
 
+    /** Words still without a transcription — how many the fill could work on. */
+    val missingTranscription: StateFlow<Int> = repository.observeMissingPronunciation(profileId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
     /** Writes the whole dictionary as CSV (see [WordRepository.exportCsv]) to a user-picked file. */
     fun exportTo(uri: Uri, resolver: ContentResolver) {
         viewModelScope.launch(Dispatchers.IO) {

@@ -69,6 +69,39 @@ object StudyStats {
         return title to listOf(streakPart, wordsPart).filter { it.isNotEmpty() }.joinToString("\n")
     }
 
+    /** One cell of the study calendar. */
+    data class CalendarDay(val epochDay: Long, val cards: Int)
+
+    /**
+     * The last [weeks] weeks as columns of 7 days (Monday first), oldest week first, ending with
+     * the week that contains [today]; days after today are left out of the last column.
+     */
+    fun calendar(cardsByDay: Map<Long, Int>, today: Long, weeks: Int): List<List<CalendarDay>> {
+        // 1970-01-01 (epoch day 0) was a Thursday → Monday-based day of week = (day + 3) mod 7.
+        val mondayThisWeek = today - Math.floorMod(today + 3, 7L)
+        val firstMonday = mondayThisWeek - 7L * (weeks - 1)
+        return (0 until weeks).map { w ->
+            (0 until 7).map { d -> firstMonday + 7L * w + d }
+                .filter { it <= today }
+                .map { CalendarDay(it, cardsByDay[it] ?: 0) }
+        }
+    }
+
+    /** Cards answered per week for the same weeks as [calendar], oldest first. */
+    fun weeklyTotals(calendar: List<List<CalendarDay>>): List<Int> = calendar.map { week -> week.sumOf { it.cards } }
+
+    /**
+     * Calendar shade 0..4 for a day relative to the daily [goal]: none, under half, under the
+     * goal, met, doubled — a goal-relative scale reads better than raw counts.
+     */
+    fun intensity(cards: Int, goal: Int): Int = when {
+        cards <= 0 -> 0
+        cards * 2 < goal -> 1
+        cards < goal -> 2
+        cards < goal * 2 -> 3
+        else -> 4
+    }
+
     /** "1 день", "3 дня", "5 дней". */
     fun days(n: Int): String {
         val mod100 = n % 100

@@ -12,6 +12,7 @@ import com.wordly.app.ui.addword.AddWordScreen
 import com.wordly.app.ui.home.HomeScreen
 import com.wordly.app.ui.importwords.ImportScreen
 import com.wordly.app.ui.recheck.RecheckScreen
+import com.wordly.app.ui.stats.StatsScreen
 import com.wordly.app.ui.session.SessionScreen
 import com.wordly.app.ui.settings.SettingsScreen
 import com.wordly.app.ui.words.WordListScreen
@@ -28,6 +29,17 @@ fun WordlyNavHost() {
                 onAddWord = { profileId -> navController.navigate(Routes.add(profileId)) },
                 onStartSession = { config, profileId -> navController.navigate(Routes.session(config, profileId)) },
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+                onOpenStats = { profileId -> navController.navigate(Routes.stats(profileId)) },
+            )
+        }
+
+        composable(
+            route = Routes.STATS_PATTERN,
+            arguments = listOf(navArgument("profileId") { type = NavType.LongType }),
+        ) { backStackEntry ->
+            StatsScreen(
+                profileId = backStackEntry.arguments?.getLong("profileId") ?: 1L,
+                onBack = { navController.popBackStack() },
             )
         }
 

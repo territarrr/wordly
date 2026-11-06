@@ -11,12 +11,14 @@ object Routes {
     const val IMPORT_PATTERN = "import?profileId={profileId}"
     const val EDIT_PATTERN = "edit/{wordId}?profileId={profileId}"
     const val RECHECK_PATTERN = "recheck?profileId={profileId}"
+    const val STATS_PATTERN = "stats?profileId={profileId}"
 
     fun words(profileId: Long): String = "words?profileId=$profileId"
     fun add(profileId: Long): String = "add?profileId=$profileId"
     fun import(profileId: Long): String = "import?profileId=$profileId"
     fun edit(wordId: Long, profileId: Long): String = "edit/$wordId?profileId=$profileId"
     fun recheck(profileId: Long): String = "recheck?profileId=$profileId"
+    fun stats(profileId: Long): String = "stats?profileId=$profileId"
 
     const val SESSION_PATTERN =
         "session?mode={mode}&dir={dir}&quiz={quiz}&shuffle={shuffle}" +

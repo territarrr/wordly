@@ -30,10 +30,22 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.wordly.app.data.ThemeMode
+import com.wordly.app.audio.VoiceStatus
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.wordly.app.domain.model.Profile
 import com.wordly.app.ui.common.container
 
@@ -44,7 +56,7 @@ private val SIZES = listOf(10, 20, 50, 100)
 fun SettingsScreen(
     onDone: () -> Unit,
     viewModel: SettingsViewModel = viewModel {
-        SettingsViewModel(container.profilePreferences, container.settings, container.appContext)
+        SettingsViewModel(container.profilePreferences, container.settings, container.appContext, container.repository, container.pronouncer)
     },
 ) {
     val activeProfile by viewModel.activeProfile.collectAsStateWithLifecycle()
@@ -55,8 +67,44 @@ fun SettingsScreen(
     val autoPronounce by viewModel.autoPronounce.collectAsStateWithLifecycle()
     val reminder by viewModel.reminder.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val pendingRestore by viewModel.pendingRestore.collectAsStateWithLifecycle()
+    val message by viewModel.message.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    val saveBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) viewModel.exportBackup(uri, context.contentResolver)
+    }
+    val openBackup = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) viewModel.pickRestore(uri, context.contentResolver)
+    }
+
+    LaunchedEffect(message) {
+        message?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.consumeMessage()
+        }
+    }
+
+    pendingRestore?.let { backup ->
+        val date = remember(backup) {
+            java.text.SimpleDateFormat("d MMMM yyyy, HH:mm", java.util.Locale("ru")).format(java.util.Date(backup.exportedAt))
+        }
+        AlertDialog(
+            onDismissRequest = viewModel::cancelRestore,
+            title = { Text("Восстановить из копии?") },
+            text = {
+                Text(
+                    "Копия от $date: слов ${backup.words.size}. Весь текущий словарь, прогресс и статистика " +
+                        "будут заменены содержимым копии.",
+                )
+            },
+            confirmButton = { TextButton(onClick = viewModel::confirmRestore) { Text("Заменить") } },
+            dismissButton = { TextButton(onClick = viewModel::cancelRestore) { Text("Отмена") } },
+        )
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("Настройки") },
@@ -136,6 +184,24 @@ fun SettingsScreen(
                     },
                 ) { Text("Изменить время (${reminder.timeLabel})") }
             }
+
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            SerbianVoiceSection(viewModel)
+
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            Text("Резервная копия", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Все слова обоих языков, что выучено, расписание повторений и статистика — в один файл. " +
+                    "Пригодится при смене телефона или перед экспериментами.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(onClick = {
+                    saveBackup.launch("wordly-backup-${java.time.LocalDate.now()}.json")
+                }) { Text("Сохранить копию") }
+                OutlinedButton(onClick = { openBackup.launch("*/*") }) { Text("Восстановить") }
+            }
         }
     }
 }
@@ -166,5 +232,52 @@ private fun SwitchRow(title: String, subtitle: String, checked: Boolean, onChang
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Switch(checked = checked, onCheckedChange = onChange)
+    }
+}
+
+/**
+ * Whether Serbian words without a dictionary recording can be spoken at all: the platform TTS
+ * needs a Serbian (or, as a stand-in, Croatian) voice, which many phones don't have installed.
+ */
+@Composable
+private fun SerbianVoiceSection(viewModel: SettingsViewModel) {
+    val context = LocalContext.current
+    var status by remember { mutableStateOf<VoiceStatus?>(null) }
+    // TTS starts asynchronously; re-check after returning from the voice installer too.
+    LifecycleResumeEffect(Unit) {
+        status = null
+        onPauseOrDispose {}
+    }
+    LaunchedEffect(status) {
+        while (status == null) {
+            status = viewModel.serbianVoice()
+            if (status == null) kotlinx.coroutines.delay(300)
+        }
+    }
+
+    Text("Озвучка сербского", style = MaterialTheme.typography.titleMedium)
+    Text(
+        when (status) {
+            null -> "Проверяю голоса синтеза речи…"
+            VoiceStatus.NATIVE -> "Сербский голос установлен ✓"
+            VoiceStatus.FALLBACK -> "Сербского голоса нет — слова читает хорватский (звучит почти так же). Можно установить сербский."
+            VoiceStatus.MISSING -> "Голоса для сербского нет — кнопка 🔊 у сербских слов молчит. Установите голос «Српски» в синтезе речи."
+        },
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (status == VoiceStatus.NATIVE || status == VoiceStatus.FALLBACK) {
+            OutlinedButton(onClick = viewModel::testSerbianVoice) { Text("Проверить: hvala") }
+        }
+        if (status == VoiceStatus.FALLBACK || status == VoiceStatus.MISSING) {
+            OutlinedButton(onClick = {
+                val install = android.content.Intent(android.speech.tts.TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                runCatching { context.startActivity(install) }.onFailure {
+                    runCatching { context.startActivity(android.content.Intent("com.android.settings.TTS_SETTINGS").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                }
+            }) { Text("Установить голос") }
+        }
     }
 }

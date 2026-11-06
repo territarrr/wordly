@@ -99,6 +99,7 @@ fun HomeScreen(
     onAddWord: (profileId: Long) -> Unit,
     onStartSession: (SessionConfig, profileId: Long) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenStats: (profileId: Long) -> Unit,
     viewModel: HomeViewModel = viewModel {
         HomeViewModel(container.repository, container.profilePreferences, container.settings)
     },
@@ -158,7 +159,7 @@ fun HomeScreen(
         ) {
             Spacer(Modifier.height(4.dp))
             LanguageSwitch(activeProfile, viewModel::switchProfile)
-            ProgressHero(stats, dailyGoal)
+            ProgressHero(stats, dailyGoal, onClick = { onOpenStats(activeProfile.id) })
             Spacer(Modifier.height(8.dp))
 
             if (stats.learned > 0) {
@@ -337,8 +338,9 @@ private fun LanguageSwitch(active: Profile, onSwitch: (Profile) -> Unit) {
 }
 
 @Composable
-private fun ProgressHero(stats: HomeStats, dailyGoal: Int) {
+private fun ProgressHero(stats: HomeStats, dailyGoal: Int, onClick: () -> Unit) {
     Card(
+        onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(

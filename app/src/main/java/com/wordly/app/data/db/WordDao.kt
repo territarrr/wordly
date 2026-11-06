@@ -21,6 +21,15 @@ interface WordDao {
     @Query("SELECT * FROM words WHERE profileId = :profileId AND normalized = :normalized LIMIT 1")
     suspend fun findByNormalized(profileId: Long, normalized: String): Word?
 
+    @Query("SELECT * FROM words WHERE profileId = :profileId AND transcription IS NULL AND orderIndex > :after ORDER BY orderIndex LIMIT :limit")
+    suspend fun missingTranscription(profileId: Long, after: Long, limit: Int): List<Word>
+
+    @Query("SELECT COUNT(*) FROM words WHERE profileId = :profileId AND transcription IS NULL AND orderIndex > :after")
+    suspend fun countMissingTranscription(profileId: Long, after: Long): Int
+
+    @Query("SELECT COUNT(*) FROM words WHERE profileId = :profileId AND transcription IS NULL")
+    fun observeMissingTranscription(profileId: Long): Flow<Int>
+
     @Query("SELECT * FROM words WHERE id = :id LIMIT 1")
     suspend fun getById(id: Long): Word?
 

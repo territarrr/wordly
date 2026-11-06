@@ -52,4 +52,21 @@ class StudyStatsTest {
         assertEquals("Давай повторим слова", StudyStats.reminderText(0, false, 0, 4).first)
         assertEquals("21 день", StudyStats.days(21))
     }
+
+    @Test
+    fun `calendar columns are Monday-first weeks ending today`() {
+        // 2026-11-05 is a Thursday.
+        val today = java.time.LocalDate.of(2026, 11, 5).toEpochDay()
+        val cal = StudyStats.calendar(mapOf(today to 7, today - 7 to 3), today, weeks = 2)
+        assertEquals(2, cal.size)
+        assertEquals(java.time.DayOfWeek.MONDAY, java.time.LocalDate.ofEpochDay(cal[0][0].epochDay).dayOfWeek)
+        assertEquals(7, cal[0].size)
+        assertEquals(4, cal[1].size) // Mon..Thu of this week
+        assertEquals(listOf(3, 7), StudyStats.weeklyTotals(cal))
+    }
+
+    @Test
+    fun `calendar shade is relative to the daily goal`() {
+        assertEquals(listOf(0, 1, 2, 3, 4), listOf(0, 5, 15, 25, 40).map { StudyStats.intensity(it, goal = 20) })
+    }
 }

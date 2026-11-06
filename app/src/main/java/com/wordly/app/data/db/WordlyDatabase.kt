@@ -17,6 +17,7 @@ abstract class WordlyDatabase : RoomDatabase() {
     abstract fun wordDao(): WordDao
     abstract fun progressDao(): ProgressDao
     abstract fun studyDayDao(): StudyDayDao
+    abstract fun backupDao(): BackupDao
 }
 
 /** Adds [Word.isFavorite], defaulting existing rows to not-favorited. */

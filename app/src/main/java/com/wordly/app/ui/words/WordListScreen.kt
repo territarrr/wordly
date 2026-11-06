@@ -36,6 +36,10 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.LinearProgressIndicator
+import com.wordly.app.notify.FillPronunciationWorker
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -104,6 +108,10 @@ fun WordListScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val exportMessage by viewModel.exportMessage.collectAsStateWithLifecycle()
+    val missingTranscription by viewModel.missingTranscription.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val fillProgress by remember(profileId) { FillPronunciationWorker.observe(context, profileId) }
+        .collectAsStateWithLifecycle(initialValue = null)
     var benchmarkTarget by remember { mutableStateOf<Word?>(null) }
     var tab by rememberSaveable { mutableStateOf(WordTab.ALL) }
     var sort by rememberSaveable { mutableStateOf(WordSort.NEWEST) }
@@ -113,7 +121,6 @@ fun WordListScreen(
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var selectedIds by rememberSaveable { mutableStateOf(setOf<Long>()) }
     val selecting = selectedIds.isNotEmpty()
-    val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -266,6 +273,17 @@ fun WordListScreen(
                                     },
                                 )
                             }
+                            // English words imported without a transcription (e.g. from 2Books).
+                            if (profileId == Profile.ENGLISH.id && missingTranscription > 0) {
+                                DropdownMenuItem(
+                                    text = { Text("Заполнить транскрипцию ($missingTranscription)") },
+                                    leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null) },
+                                    onClick = {
+                                        showMenu = false
+                                        FillPronunciationWorker.start(context, profileId)
+                                    },
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text("Очистить словарь", color = MaterialTheme.colorScheme.error) },
                                 onClick = {
@@ -331,6 +349,9 @@ fun WordListScreen(
                 .padding(innerPadding),
             contentPadding = PaddingValues(bottom = 88.dp),
         ) {
+            fillProgress?.takeIf { it.running }?.let { progress ->
+                item { FillBanner(progress, onStop = { FillPronunciationWorker.stop(context, profileId) }) }
+            }
             item {
                 Column(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -451,6 +472,40 @@ private fun SwipeToDelete(enabled: Boolean, onDelete: () -> Unit, content: @Comp
             }
         },
     ) { content() }
+}
+
+/** "Filling in transcriptions…" with progress and a stop button, while the background fill runs. */
+@Composable
+private fun FillBanner(progress: FillPronunciationWorker.Progress, onStop: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Заполняю транскрипцию в фоне", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        if (progress.total > 0) {
+                            "Проверено ${progress.checked} из ${progress.total} · найдено ${progress.filled}"
+                        } else {
+                            "Запускаю… (нужен интернет)"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                TextButton(onClick = onStop) { Text("Стоп") }
+            }
+            if (progress.total > 0) {
+                LinearProgressIndicator(
+                    progress = { progress.checked.toFloat() / progress.total },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+    }
 }
 
 @Composable
