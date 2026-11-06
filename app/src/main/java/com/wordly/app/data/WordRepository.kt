@@ -32,6 +32,9 @@ import java.time.LocalDate
 /** Thrown by [WordRepository.addWord]/[WordRepository.updateWord] when the word already exists. */
 class DuplicateWordException(val word: String) : Exception("Word already exists: $word")
 
+/** One answer as written by [WordRepository.recordAnswer] — enough to take it back. */
+data class RecordedAnswer(val before: Word, val after: Word, val epochDay: Long)
+
 /** Serbian lookup result: Russian candidates, and the word with its stressed syllable marked ("hvála"). */
 data class SerbianLookup(val translations: List<String>, val stressed: String?)
 
@@ -166,7 +169,7 @@ class WordRepository(
         correct: Boolean,
         updateSchedule: Boolean,
         now: Long = System.currentTimeMillis(),
-    ): Word {
+    ): RecordedAnswer {
         val current = wordDao.getById(word.id) ?: word
         var updated = current.copy(
             correctCount = current.correctCount + if (correct) 1 else 0,
@@ -177,8 +180,28 @@ class WordRepository(
             updated = Srs.onAnswer(updated, correct, now)
         }
         wordDao.update(updated)
-        studyDayDao.add(profileId, LocalDate.now().toEpochDay(), 1)
-        return updated
+        val day = LocalDate.now().toEpochDay()
+        studyDayDao.add(profileId, day, 1)
+        return RecordedAnswer(before = current, after = updated, epochDay = day)
+    }
+
+    /**
+     * Takes back one [recordAnswer]: the word's counters and spaced-repetition state go back to
+     * what they were, and that day's card count drops by one. Anything else changed on the word
+     * since (favorite, an edit) is kept.
+     */
+    suspend fun undoAnswer(profileId: Long, recorded: RecordedAnswer): Word? {
+        val current = wordDao.getById(recorded.before.id) ?: return null
+        val restored = current.copy(
+            correctCount = recorded.before.correctCount,
+            wrongCount = recorded.before.wrongCount,
+            lastReviewedAt = recorded.before.lastReviewedAt,
+            srsBox = recorded.before.srsBox,
+            dueAt = recorded.before.dueAt,
+        )
+        wordDao.update(restored)
+        studyDayDao.add(profileId, recorded.epochDay, -1)
+        return restored
     }
 
     /** See [Srs.spreadBacklog]; a no-op once every learned word has a schedule. */

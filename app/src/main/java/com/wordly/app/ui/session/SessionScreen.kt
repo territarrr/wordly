@@ -34,6 +34,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Check
@@ -91,6 +92,8 @@ import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.wordly.app.data.entity.Word
 import com.wordly.app.domain.Quiz
+import com.wordly.app.domain.SerbianScript
+import com.wordly.app.domain.model.Profile
 import com.wordly.app.domain.model.Direction
 import com.wordly.app.domain.model.QuizType
 import com.wordly.app.ui.common.container
@@ -147,6 +150,12 @@ fun SessionScreen(
                     }
                 },
                 actions = {
+                    // Take back an answer tapped by mistake (works from the finish screen too).
+                    if (state.canUndo) {
+                        IconButton(onClick = viewModel::undo) {
+                            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Отменить последний ответ")
+                        }
+                    }
                     if (state.quiz != QuizType.LISTENING && !state.finished && state.cards.isNotEmpty()) {
                         IconButton(onClick = viewModel::toggleAutoPronounce) {
                             Icon(
@@ -244,6 +253,7 @@ private fun SessionBody(state: SessionUiState, viewModel: SessionViewModel, onEd
                     onSpeak = viewModel::pronounceCurrent,
                     onToggleFavorite = viewModel::toggleFavorite,
                     onEdit = { onEditWord(word.id) },
+                    serbian = viewModel.profile == Profile.SERBIAN,
                 )
             }
         }
@@ -490,6 +500,7 @@ private fun CardFace(
     onSpeak: () -> Unit,
     onToggleFavorite: () -> Unit,
     onEdit: () -> Unit,
+    serbian: Boolean = false,
 ) {
     val listening = quiz == QuizType.LISTENING
     val englishFirst = direction == Direction.EN_TO_RU || listening
@@ -532,6 +543,7 @@ private fun CardFace(
                     style = MaterialTheme.typography.headlineLarge,
                     textAlign = TextAlign.Center,
                 )
+                if (englishFirst && serbian) OtherScript(word.text)
                 if (englishFirst) TranscriptionAndSound(word, onSpeak)
             }
 
@@ -549,6 +561,7 @@ private fun CardFace(
                         color = MaterialTheme.colorScheme.primary,
                         textAlign = TextAlign.Center,
                     )
+                    if (!englishFirst && serbian) OtherScript(word.text)
                     if (!englishFirst) TranscriptionAndSound(word, onSpeak)
                     word.note?.takeIf { it.isNotBlank() }?.let {
                         Spacer(Modifier.height(12.dp))
@@ -563,6 +576,17 @@ private fun CardFace(
             }
         }
     }
+}
+
+/** A Serbian word in its other script, small, under the main one: "kuća" → "кућа", "кућа" → "kuća". */
+@Composable
+private fun OtherScript(text: String) {
+    Text(
+        if (SerbianScript.isCyrillic(text)) SerbianScript.toLatin(text) else SerbianScript.toCyrillic(text),
+        style = MaterialTheme.typography.titleMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+    )
 }
 
 @Composable

@@ -12,6 +12,9 @@ import com.wordly.app.domain.model.Direction
 import com.wordly.app.domain.model.Profile
 import com.wordly.app.domain.model.QuizType
 import com.wordly.app.domain.model.ReviewScope
+import com.wordly.app.data.RecordedAnswer
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -43,6 +46,8 @@ data class SessionUiState(
     val picked: String? = null,
     /** New-words finish: which words are ticked as learned. */
     val knownSelection: Set<Long> = emptySet(),
+    /** Whether the last answer(s) can be taken back with "↶". */
+    val canUndo: Boolean = false,
 ) {
     val current: Word? get() = cards.getOrNull(index)
     val progressLabel: String get() = "${(index + 1).coerceAtMost(cards.size.coerceAtLeast(1))} / ${cards.size}"
@@ -83,6 +88,18 @@ class SessionViewModel(
 
     /** Words already moved in the spaced-repetition schedule this session (only the first answer counts). */
     private val scheduled = mutableSetOf<Long>()
+
+    /** One answer that "↶" can take back: where it was given and what it changed. */
+    private class UndoEntry(
+        val index: Int,
+        val wordId: Long,
+        val previousAnswer: Boolean?,
+        val addedToSchedule: Boolean,
+        val write: Deferred<RecordedAnswer>,
+    )
+
+    /** Most recent answers of the current round, newest last (in memory only). */
+    private val undoStack = ArrayDeque<UndoEntry>()
 
     init { load() }
 
@@ -258,6 +275,7 @@ class SessionViewModel(
     fun repeatMistakes() {
         val mistakes = _state.value.mistakes
         if (mistakes.isEmpty()) return
+        clearUndo()
         _state.update {
             it.copy(cards = mistakes, index = 0, answers = emptyMap(), finished = false, mistakesRound = true).resetCard()
         }
@@ -273,6 +291,7 @@ class SessionViewModel(
 
     /** New-words mode: the ticked words become learned (see `WordRepository.commitBatch`). */
     fun confirmLearned() = viewModelScope.launch {
+        clearUndo()
         val s = _state.value
         container.repository.commitBatch(profileId, fullCards, s.knownSelection)
         _state.update { it.copy(committed = true) }
@@ -290,6 +309,7 @@ class SessionViewModel(
     fun repeatReversed() = restart(reverse = true)
 
     private fun restart(reverse: Boolean) {
+        clearUndo()
         if (reverse) direction = if (direction == Direction.EN_TO_RU) Direction.RU_TO_EN else Direction.EN_TO_RU
         round++
         if (shuffle) fullCards = LearningEngine.orderSession(fullCards, shuffle = true, seed = seed + round)
@@ -333,13 +353,43 @@ class SessionViewModel(
     // ---- Internals ----
 
     private fun record(correct: Boolean) {
-        val word = _state.value.current ?: return
-        _state.update { it.copy(answers = it.answers + (word.id to correct)) }
-        val updateSchedule = !_state.value.mistakesRound && scheduled.add(word.id)
+        val s = _state.value
+        val word = s.current ?: return
+        val previousAnswer = s.answers[word.id]
+        val updateSchedule = !s.mistakesRound && scheduled.add(word.id)
+        val write = viewModelScope.async {
+            container.repository.recordAnswer(profileId, word, correct, updateSchedule).also { recorded ->
+                replaceCard(recorded.after.copy(isFavorite = _state.value.cards.firstOrNull { it.id == word.id }?.isFavorite ?: recorded.after.isFavorite))
+            }
+        }
+        undoStack.addLast(UndoEntry(s.index, word.id, previousAnswer, updateSchedule, write))
+        if (undoStack.size > UNDO_LIMIT) undoStack.removeFirst()
+        _state.update { it.copy(answers = it.answers + (word.id to correct), canUndo = true) }
         persist()
+    }
+
+    /**
+     * "↶": takes back the last answer — the word's stats/schedule and today's count in the
+     * database, and the session goes back to that card, face down, as if it hadn't been answered.
+     */
+    fun undo() {
+        val entry = undoStack.removeLastOrNull() ?: return
+        if (entry.addedToSchedule) scheduled.remove(entry.wordId)
+        _state.update { s ->
+            s.copy(
+                index = entry.index.coerceAtMost((s.cards.size - 1).coerceAtLeast(0)),
+                answers = if (entry.previousAnswer == null) s.answers - entry.wordId else s.answers + (entry.wordId to entry.previousAnswer),
+                finished = false,
+                canUndo = undoStack.isNotEmpty(),
+            ).resetCard()
+        }
+        persist()
+        onCardShown()
         viewModelScope.launch {
-            val updated = container.repository.recordAnswer(profileId, word, correct, updateSchedule)
-            replaceCard(updated.copy(isFavorite = _state.value.cards.firstOrNull { it.id == word.id }?.isFavorite ?: updated.isFavorite))
+            val recorded = runCatching { entry.write.await() }.getOrNull() ?: return@launch
+            container.repository.undoAnswer(profileId, recorded)?.let { restored ->
+                replaceCard(restored.copy(isFavorite = _state.value.cards.firstOrNull { it.id == restored.id }?.isFavorite ?: restored.isFavorite))
+            }
         }
     }
 
@@ -367,6 +417,11 @@ class SessionViewModel(
         }
     }
 
+    private fun clearUndo() {
+        undoStack.clear()
+        _state.update { it.copy(canUndo = false) }
+    }
+
     private fun persistFull() {
         handle[KEY_FULL] = fullCards.map { it.id }.toLongArray()
         handle[KEY_DIRECTION] = direction.name
@@ -386,6 +441,7 @@ class SessionViewModel(
     }
 
     private companion object {
+        const val UNDO_LIMIT = 20
         const val KEY_FULL = "s_full"
         const val KEY_DIRECTION = "s_direction"
         const val KEY_ROUND_NO = "s_round_no"
