@@ -22,6 +22,7 @@ import com.wordly.app.domain.CsvParseResult
 import com.wordly.app.domain.CsvImport
 import com.wordly.app.domain.GoogleSheetsUrl
 import com.wordly.app.domain.LearningEngine
+import com.wordly.app.domain.PronunciationGuess
 import com.wordly.app.domain.SerbianScript
 import com.wordly.app.domain.Srs
 import com.wordly.app.domain.TranslationRanking
@@ -160,9 +161,6 @@ class WordRepository(
 
     suspend fun deleteWords(words: List<Word>) = wordDao.deleteAll(words)
 
-    /** Undo for [deleteWords]/[deleteWord]: re-inserts with the original ids and `orderIndex`. */
-    suspend fun restoreWords(words: List<Word>) = wordDao.restore(words)
-
     /**
      * Records one answer to [word]: bumps its right/wrong counters and today's study count, and —
      * when [updateSchedule] and the word is learned — moves it in the spaced-repetition schedule.
@@ -257,6 +255,38 @@ class WordRepository(
 
     fun observeMissingPronunciation(profileId: Long): Flow<Int> = wordDao.observeMissingTranscription(profileId)
 
+    /**
+     * A transcription/audio finder for [profileId] that also covers phrases and inflected forms
+     * (see [PronunciationGuess]). Words already saved with a transcription answer without a
+     * request, and every online answer — found or not — is remembered, so build one per run.
+     */
+    suspend fun pronunciationFinder(profileId: Long): PronunciationFinder {
+        val known = HashMap<String, String?>()
+        for (word in wordDao.getAllOrdered(profileId)) {
+            val transcription = word.transcription?.takeIf { it.isNotBlank() } ?: continue
+            known.putIfAbsent(word.text.trim().lowercase(), transcription)
+        }
+        return PronunciationFinder(known)
+    }
+
+    inner class PronunciationFinder internal constructor(private val known: MutableMap<String, String?>) {
+        /** Online lookups per word at most, so a long word with many possible base forms stays cheap. */
+        private val maxRequestsPerWord = 6
+
+        suspend fun find(text: String): WordLookup? {
+            val direct = lookup(text).getOrNull()
+            if (direct?.transcription != null) return direct
+            known.putIfAbsent(text.trim().lowercase(), null) // just asked: don't ask again for a one-word "phrase"
+            var requests = 0
+            val guessed = PronunciationGuess.guess(text) { token ->
+                if (token in known) return@guess known[token]
+                if (requests++ >= maxRequestsPerWord) return@guess null
+                lookup(token).getOrNull()?.transcription.also { known[token] = it }
+            }
+            return if (guessed != null || direct != null) WordLookup(guessed, direct?.audioUrl) else null
+        }
+    }
+
     /** Sets a found transcription/audio only where the word still has none. True if anything changed. */
     suspend fun fillPronunciation(id: Long, transcription: String?, audioUrl: String?): Boolean {
         val word = wordDao.getById(id) ?: return false
@@ -280,13 +310,20 @@ class WordRepository(
      * become learned and enter the spaced-repetition schedule; the rest stay first in line.
      */
     suspend fun commitBatch(profileId: Long, batch: List<Word>, knownIds: Set<Long>, now: Long = System.currentTimeMillis()) {
-        val fresh = batch.mapNotNull { wordDao.getById(it.id) }
         val current = progressDao.currentBenchmark(profileId)
-        val (reindexed, benchmark) = LearningEngine.partialCommit(fresh, knownIds, current)
+        // The whole queue of new words, not just the batch: a batch taken from the newest end
+        // has to move in front of the older new words to become learned.
+        val queue = wordDao.getAllOrdered(profileId).filter { it.orderIndex > current }
+        val known = knownIds.intersect(batch.map { it.id }.toSet())
+        val (reindexed, benchmark) = LearningEngine.partialCommit(queue, known, current)
         val byId = reindexed.associateBy { it.id }
-        val updates = fresh.map { w ->
-            val moved = byId[w.id] ?: w
-            if (w.id in knownIds) Srs.onLearned(moved, now) else moved
+        val updates = queue.mapNotNull { w ->
+            val moved = byId[w.id]
+            when {
+                w.id in known -> Srs.onLearned(moved ?: w, now)
+                moved != null -> moved
+                else -> null
+            }
         }
         wordDao.updateAll(updates)
         setBenchmark(profileId, benchmark)

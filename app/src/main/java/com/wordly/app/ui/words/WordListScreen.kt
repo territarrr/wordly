@@ -36,6 +36,7 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.LinearProgressIndicator
@@ -58,7 +59,6 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
@@ -71,7 +71,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -81,6 +80,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.wordly.app.data.entity.Word
@@ -88,7 +88,6 @@ import com.wordly.app.domain.model.Profile
 import androidx.compose.material.icons.filled.Refresh
 import com.wordly.app.domain.LearningEngine
 import com.wordly.app.ui.common.container
-import kotlinx.coroutines.launch
 
 private enum class WordTab(val label: String) { ALL("Все"), LEARNED("Выученные"), NEW("Новые") }
 private enum class WordSort(val label: String) { NEWEST("Новые сначала"), OLDEST("Старые сначала"), ALPHA("А–Я") }
@@ -122,7 +121,6 @@ fun WordListScreen(
     var selectedIds by rememberSaveable { mutableStateOf(setOf<Long>()) }
     val selecting = selectedIds.isNotEmpty()
     val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
 
     val createDocument = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/csv"),
@@ -137,19 +135,59 @@ fun WordListScreen(
         }
     }
 
+    // A fill that finishes while the list is open says what it found — the count left over is
+    // words no dictionary has a transcription for, not a fill that silently did nothing.
+    var runningFill by remember { mutableStateOf<FillPronunciationWorker.Progress?>(null) }
+    LaunchedEffect(fillProgress) {
+        val now = fillProgress
+        val before = runningFill
+        runningFill = now?.takeIf { it.running }
+        if (before != null && now != null && !now.running && now.total == before.total) {
+            val left = now.total - now.filled
+            snackbarHostState.showSnackbar(
+                "Транскрипция: найдено ${now.filled} из ${now.total}" +
+                    if (left > 0) ". Для остальных $left её нет в словарях" else "",
+                duration = SnackbarDuration.Long,
+                withDismissAction = true,
+            )
+        }
+    }
+
     BackHandler(enabled = selecting) { selectedIds = emptySet() }
 
-    /** Deletes right away, but offers "Отменить" for a few seconds — no confirmation dialog in the way. */
-    fun deleteWithUndo(words: List<Word>) {
-        if (words.isEmpty()) return
-        viewModel.delete(words)
-        selectedIds = emptySet()
-        scope.launch {
-            snackbarHostState.currentSnackbarData?.dismiss()
-            val label = if (words.size == 1) "«${words[0].text}» удалено" else "Удалено слов: ${words.size}"
-            val result = snackbarHostState.showSnackbar(label, actionLabel = "Отменить", duration = SnackbarDuration.Long)
-            if (result == SnackbarResult.ActionPerformed) viewModel.undoDelete()
-        }
+    /** Nothing is deleted until the dialog is confirmed; tapping outside it doesn't close it. */
+    var pendingDelete by remember { mutableStateOf<List<Word>>(emptyList()) }
+
+    fun requestDelete(words: List<Word>) {
+        if (words.isNotEmpty()) pendingDelete = words
+    }
+
+    if (pendingDelete.isNotEmpty()) {
+        val words = pendingDelete
+        AlertDialog(
+            onDismissRequest = { pendingDelete = emptyList() },
+            properties = DialogProperties(dismissOnClickOutside = false),
+            title = { Text(if (words.size == 1) "Удалить «${words[0].text}»?" else "Удалить слов: ${words.size}?") },
+            text = {
+                Text(
+                    if (words.size == 1) "${words[0].translation}\n\nСлово и его статистика будут удалены."
+                    else "Слова и их статистика будут удалены.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.delete(words)
+                        selectedIds = emptySet()
+                        pendingDelete = emptyList()
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text("Удалить") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = emptyList() }) { Text("Отмена") }
+            },
+        )
     }
 
     if (showClearDialog) {
@@ -230,7 +268,7 @@ fun WordListScreen(
                                 Icon(Icons.Default.Flag, contentDescription = "Выучено до сюда")
                             }
                         }
-                        IconButton(onClick = { deleteWithUndo(selectedWords) }) {
+                        IconButton(onClick = { requestDelete(selectedWords) }) {
                             Icon(Icons.Outlined.Delete, contentDescription = "Удалить выбранные")
                         }
                     },
@@ -418,7 +456,7 @@ fun WordListScreen(
                 item { BenchmarkDivider() }
             }
             itemsIndexed(displayWords, key = { _, word -> word.id }) { index, word ->
-                SwipeToDelete(enabled = !selecting, onDelete = { deleteWithUndo(listOf(word)) }) {
+                SwipeToDelete(enabled = !selecting, onDelete = { requestDelete(listOf(word)) }) {
                     WordRow(
                         word = word,
                         selecting = selecting,
@@ -452,8 +490,9 @@ fun WordListScreen(
 private fun SwipeToDelete(enabled: Boolean, onDelete: () -> Unit, content: @Composable () -> Unit) {
     val state = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
+            // Never dismiss by itself: the row springs back and the confirmation dialog decides.
             if (value == SwipeToDismissBoxValue.EndToStart) onDelete()
-            value == SwipeToDismissBoxValue.EndToStart
+            false
         },
     )
     SwipeToDismissBox(

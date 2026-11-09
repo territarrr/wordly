@@ -217,4 +217,21 @@ class LearningEngineTest {
         assertEquals(13L, all.second)
         assertEquals(10L, LearningEngine.partialCommit(batch, emptySet(), current = 10).second)
     }
+
+    @Test
+    fun `newBatch from the end takes the most recently added new words`() {
+        val result = LearningEngine.newBatch(all, benchmark = 4, batchSize = 3, fromEnd = true)
+        assertEquals(all.sortedBy { it.orderIndex }.filter { it.orderIndex > 4 }.takeLast(3).map { it.id }, result.map { it.id })
+    }
+
+    @Test
+    fun `committing a batch from the end over the whole queue moves it in front of older new words`() {
+        val queue = (11L..16L).map { word(it) }
+        val (changed, benchmark) = LearningEngine.partialCommit(queue, knownIds = setOf(15L, 16L), current = 10)
+        val newOrder = queue.associate { it.id to it.orderIndex } + changed.associate { it.id to it.orderIndex }
+        assertEquals(12L, benchmark)
+        assertEquals(setOf(15L, 16L), newOrder.filterValues { it <= benchmark }.keys)
+        // Older new words keep their relative order, right after the learned ones.
+        assertEquals(listOf(11L, 12L, 13L, 14L), newOrder.filterValues { it > benchmark }.entries.sortedBy { it.value }.map { it.key })
+    }
 }

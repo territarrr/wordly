@@ -44,8 +44,8 @@ sealed interface SessionConfig {
     ) : SessionConfig
 
     /**
-     * Learn the next [batchSize] words that come after the benchmark — always the oldest new ones,
-     * but presented shuffled (from [seed]) unless [shuffle] is off.
+     * Learn [batchSize] words that come after the benchmark — the oldest new ones, or with
+     * [fromEnd] the most recently added — presented shuffled (from [seed]) unless [shuffle] is off.
      */
     data class NewWords(
         override val direction: Direction,
@@ -53,6 +53,7 @@ sealed interface SessionConfig {
         val shuffle: Boolean = true,
         val seed: Long = 0,
         override val quiz: QuizType = QuizType.CARDS,
+        val fromEnd: Boolean = false,
     ) : SessionConfig
 
     /**
@@ -67,7 +68,7 @@ sealed interface SessionConfig {
         override val quiz: QuizType = QuizType.CARDS,
     ) : SessionConfig
 
-    /** Learned words the spaced-repetition schedule says are due today (see `Srs`), at most [limit]. */
+    /** [limit] random learned words among those the spaced-repetition schedule says are due (see `Srs.dailySlice`). */
     data class Due(
         override val direction: Direction,
         val limit: Int,

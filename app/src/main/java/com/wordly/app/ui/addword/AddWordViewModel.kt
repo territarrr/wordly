@@ -165,9 +165,9 @@ class AddWordViewModel(
         _state.update { it.copy(looking = true, message = null) }
         viewModelScope.launch {
             if (profile.hasTranscriptionLookup) {
-                val dictionaryDeferred = async { repository.lookup(word) }
+                val dictionaryDeferred = async { repository.pronunciationFinder(profileId).find(word) }
                 val translationsDeferred = async { repository.lookupTranslations(word) }
-                val dictionary = dictionaryDeferred.await().getOrNull()
+                val dictionary = dictionaryDeferred.await()
                 val translations = translationsDeferred.await().getOrDefault(emptyList())
 
                 val gotTranscription = dictionary?.transcription != null

@@ -65,4 +65,15 @@ class SrsTest {
         assertEquals(listOf(now, now + day, now, now + day, now), spread.map { it.dueAt })
         assertTrue(spread.all { it.srsBox == 2 })
     }
+
+    @Test
+    fun `dailySlice takes a fixed number of random due words, the same for the same seed`() {
+        val now = 1_000_000L
+        val words = (1L..100L).map { word(it, box = 1, dueAt = now - 1) }
+        val a = Srs.dailySlice(words, benchmark = 100, now = now, limit = 50, seed = 7)
+        assertEquals(50, a.size)
+        assertEquals(a, Srs.dailySlice(words.shuffled(), benchmark = 100, now = now, limit = 50, seed = 7))
+        assertTrue(a.map { it.id } != (1L..50L).toList()) // not just the first 50
+        assertEquals(30, Srs.dailySlice(words.take(30), benchmark = 100, now = now, limit = 50, seed = 7).size)
+    }
 }

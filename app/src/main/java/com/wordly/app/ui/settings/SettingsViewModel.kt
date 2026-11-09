@@ -76,6 +76,7 @@ class SettingsViewModel(
     val themeMode: StateFlow<ThemeMode> = settings.themeMode
     val defaultBatch: StateFlow<Int> = settings.defaultBatch
     val dailyGoal: StateFlow<Int> = settings.dailyGoal
+    val dailyReview: StateFlow<Int> = settings.dailyReview
     val autoPronounce: StateFlow<Boolean> = settings.autoPronounce
     val reminder: StateFlow<AppSettings.Reminder> = settings.reminder
 
@@ -84,6 +85,7 @@ class SettingsViewModel(
     fun setThemeMode(mode: ThemeMode) = settings.setThemeMode(mode)
     fun setDefaultBatch(size: Int) = settings.setDefaultBatch(size)
     fun setDailyGoal(goal: Int) = settings.setDailyGoal(goal)
+    fun setDailyReview(count: Int) = settings.setDailyReview(count)
     fun setAutoPronounce(enabled: Boolean) = settings.setAutoPronounce(enabled)
 
     fun setReminder(reminder: AppSettings.Reminder) {

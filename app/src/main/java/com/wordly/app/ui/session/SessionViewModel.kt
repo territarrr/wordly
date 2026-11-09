@@ -71,6 +71,8 @@ class SessionViewModel(
     private val scope: ReviewScope = decodeScope(handle)
     private val batchSize: Int = handle.get<String>("batch")?.toIntOrNull()?.takeIf { it > 0 } ?: 20
     private val seed: Long = handle.get<String>("seed")?.toLongOrNull() ?: 0L
+    /** New words: take the batch from the most recently added end of the queue. */
+    private val fromEnd: Boolean = handle.get<String>("fromEnd").toBoolean()
     val profileId: Long = handle.get<String>("profileId")?.toLongOrNull() ?: Profile.ENGLISH.id
     val profile: Profile = Profile.fromId(profileId)
 
@@ -115,18 +117,14 @@ class SessionViewModel(
             else -> SessionMode.REVIEW
         }
         val built = when (sessionMode) {
-            SessionMode.NEW_WORDS -> LearningEngine.orderSession(LearningEngine.newBatch(all, benchmark, batchSize), shuffle, seed)
+            SessionMode.NEW_WORDS -> LearningEngine.orderSession(LearningEngine.newBatch(all, benchmark, batchSize, fromEnd), shuffle, seed)
             SessionMode.FAVORITES -> LearningEngine.orderSession(LearningEngine.favoritesSlice(all, scope), shuffle, seed)
             SessionMode.REVIEW -> LearningEngine.orderSession(
                 LearningEngine.learnedSlice(all = all, benchmark = benchmark, scope = scope),
                 shuffle,
                 seed,
             )
-            SessionMode.DUE -> LearningEngine.orderSession(
-                Srs.dueSlice(all, benchmark, System.currentTimeMillis(), batchSize),
-                shuffle = true,
-                seed = seed,
-            )
+            SessionMode.DUE -> Srs.dailySlice(all, benchmark, System.currentTimeMillis(), batchSize, seed)
             SessionMode.HARD -> LearningEngine.orderSession(LearningEngine.hardSlice(all), shuffle = true, seed = seed)
         }
         // Due/hard slices (and a just-committed batch) change as words get answered, so after
@@ -362,6 +360,7 @@ class SessionViewModel(
                 replaceCard(recorded.after.copy(isFavorite = _state.value.cards.firstOrNull { it.id == word.id }?.isFavorite ?: recorded.after.isFavorite))
             }
         }
+        if (updateSchedule && s.mode == SessionMode.DUE) countDue(+1)
         undoStack.addLast(UndoEntry(s.index, word.id, previousAnswer, updateSchedule, write))
         if (undoStack.size > UNDO_LIMIT) undoStack.removeFirst()
         _state.update { it.copy(answers = it.answers + (word.id to correct), canUndo = true) }
@@ -374,7 +373,10 @@ class SessionViewModel(
      */
     fun undo() {
         val entry = undoStack.removeLastOrNull() ?: return
-        if (entry.addedToSchedule) scheduled.remove(entry.wordId)
+        if (entry.addedToSchedule) {
+            scheduled.remove(entry.wordId)
+            if (_state.value.mode == SessionMode.DUE) countDue(-1)
+        }
         _state.update { s ->
             s.copy(
                 index = entry.index.coerceAtMost((s.cards.size - 1).coerceAtLeast(0)),
@@ -392,6 +394,10 @@ class SessionViewModel(
             }
         }
     }
+
+    /** Today's "На сегодня" quota: each first answer of a due word uses up one. */
+    private fun countDue(delta: Int) =
+        container.settings.addDueDone(profileId, java.time.LocalDate.now().toEpochDay(), delta)
 
     private fun replaceCard(word: Word) = _state.update { s ->
         s.copy(cards = s.cards.map { if (it.id == word.id) word else it })

@@ -23,7 +23,7 @@ object Routes {
     const val SESSION_PATTERN =
         "session?mode={mode}&dir={dir}&quiz={quiz}&shuffle={shuffle}" +
             "&scopeType={scopeType}&scopeCount={scopeCount}&scopeFromStart={scopeFromStart}" +
-            "&scopeFrom={scopeFrom}&scopeTo={scopeTo}&batch={batch}&seed={seed}&profileId={profileId}"
+            "&scopeFrom={scopeFrom}&scopeTo={scopeTo}&batch={batch}&seed={seed}&fromEnd={fromEnd}&profileId={profileId}"
 
     /**
      * `batch` doubles as the card limit for [SessionConfig.Due]; `scope*` are only meaningful for
@@ -40,7 +40,8 @@ object Routes {
         val s = encodeScope(scope)
         return "session?mode=$mode&dir=${config.direction.name}&quiz=${config.quiz.name}&shuffle=$shuffle" +
             "&scopeType=${s.type}&scopeCount=${s.count}&scopeFromStart=${s.fromStart}" +
-            "&scopeFrom=${s.from}&scopeTo=${s.to}&batch=$batch&seed=$seed&profileId=$profileId"
+            "&scopeFrom=${s.from}&scopeTo=${s.to}&batch=$batch&seed=$seed" +
+            "&fromEnd=${(config as? SessionConfig.NewWords)?.fromEnd == true}&profileId=$profileId"
     }
 
     private data class Parts(

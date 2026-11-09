@@ -60,10 +60,10 @@ object LearningEngine {
     }
 
     /** The next batch to learn: first [batchSize] words with `orderIndex > benchmark`, oldest first. */
-    fun newBatch(all: List<Word>, benchmark: Long, batchSize: Int): List<Word> =
+    fun newBatch(all: List<Word>, benchmark: Long, batchSize: Int, fromEnd: Boolean = false): List<Word> =
         all.filter { it.orderIndex > benchmark }
             .sortedBy { it.orderIndex }
-            .take(batchSize.coerceAtLeast(0))
+            .let { if (fromEnd) it.takeLast(batchSize.coerceAtLeast(0)) else it.take(batchSize.coerceAtLeast(0)) }
 
     /**
      * Orders a pre-selected slice for presentation. When [shuffle] is true the order is
@@ -135,7 +135,8 @@ object LearningEngine {
         val known = ordered.filter { it.id in knownIds }
         val unknown = ordered.filter { it.id !in knownIds }
         val reindexed = (known + unknown).mapIndexed { i, w -> w.copy(orderIndex = slots[i]) }
-        val changed = reindexed.filter { new -> batch.first { it.id == new.id }.orderIndex != new.orderIndex }
+        val before = batch.associate { it.id to it.orderIndex }
+        val changed = reindexed.filter { new -> before[new.id] != new.orderIndex }
         val benchmark = if (known.isEmpty()) current else slots[known.size - 1]
         return changed to benchmark
     }

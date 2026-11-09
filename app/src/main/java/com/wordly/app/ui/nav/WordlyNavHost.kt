@@ -124,6 +124,7 @@ fun WordlyNavHost() {
                 navArgument("scopeTo") { type = NavType.StringType; defaultValue = "0" },
                 navArgument("batch") { type = NavType.StringType; defaultValue = "0" },
                 navArgument("seed") { type = NavType.StringType; defaultValue = "0" },
+                navArgument("fromEnd") { type = NavType.StringType; defaultValue = "false" },
                 navArgument("profileId") { type = NavType.StringType; defaultValue = "1" },
             ),
         ) {

@@ -33,13 +33,14 @@ class FillPronunciationWorker(context: Context, params: WorkerParameters) : Coro
         var filled = inputData.getInt(KEY_FILLED, 0)
         val total = inputData.getInt(KEY_TOTAL, -1).takeIf { it >= 0 } ?: repository.countMissingPronunciation(profileId, after)
         val started = System.currentTimeMillis()
+        val finder = repository.pronunciationFinder(profileId)
 
         while (System.currentTimeMillis() - started < RUN_BUDGET_MS) {
             val batch = repository.wordsMissingPronunciation(profileId, after, BATCH)
             if (batch.isEmpty()) return Result.success(workDataOf(KEY_CHECKED to checked, KEY_FILLED to filled, KEY_TOTAL to total))
             for (word in batch) {
                 if (isStopped) return Result.success()
-                val found = repository.lookup(word.text).getOrNull()
+                val found = finder.find(word.text)
                 if (found != null && repository.fillPronunciation(word.id, found.transcription, found.audioUrl)) filled++
                 after = word.orderIndex
                 checked++

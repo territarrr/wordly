@@ -35,7 +35,11 @@ class ReminderWorker(context: Context, params: WorkerParameters) : CoroutineWork
             streak = StudyStats.streak(studied, today),
             studiedToday = today in studied,
             newCount = words.count { it.orderIndex > benchmark },
-            dueCount = Srs.dueCount(words, benchmark, System.currentTimeMillis()),
+            // Today's quota left, not the whole backlog — the same number Home shows.
+            dueCount = minOf(
+                Srs.dueCount(words, benchmark, System.currentTimeMillis()),
+                (container.settings.dailyReview.value - container.settings.dueDone(profile.id, today)).coerceAtLeast(0),
+            ),
         )
         container.notifier.studyReminder(title, text)
         return Result.success()

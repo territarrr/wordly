@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Today
 import androidx.compose.material3.CircularProgressIndicator
@@ -33,12 +34,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import com.wordly.app.ui.stats.CalendarHeatmap
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
@@ -132,6 +135,9 @@ fun HomeScreen(
             TopAppBar(
                 title = { Text("Wordly", style = MaterialTheme.typography.headlineSmall) },
                 actions = {
+                    IconButton(onClick = { onOpenStats(activeProfile.id) }) {
+                        Icon(Icons.Filled.CalendarMonth, contentDescription = "Статистика")
+                    }
                     IconButton(onClick = { onOpenWords(activeProfile.id) }) {
                         Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Мои слова")
                     }
@@ -167,12 +173,12 @@ fun HomeScreen(
                     icon = Icons.Filled.Today,
                     accent = MaterialTheme.colorScheme.primary,
                     title = "На сегодня",
-                    subtitle = if (stats.dueCount > 0) {
-                        "${stats.dueCount} ${wordsLabel(stats.dueCount)} пора повторить"
-                    } else {
-                        "Всё повторено — загляните завтра"
+                    subtitle = when {
+                        stats.dueToday > 0 -> "${stats.dueToday} ${wordsLabel(stats.dueToday)} на повторение"
+                        stats.dueCount > 0 -> "На сегодня всё ✓ — завтра ещё ${stats.dailyReview}"
+                        else -> "Всё повторено — загляните завтра"
                     },
-                    enabled = stats.dueCount > 0,
+                    enabled = stats.dueToday > 0,
                     onClick = { openSheet = HomeSheet.DUE },
                 )
             }
@@ -218,6 +224,7 @@ fun HomeScreen(
                 enabled = stats.favoritesCount > 0,
                 onClick = { openSheet = HomeSheet.FAVORITES },
             )
+            CalendarPreview(stats, dailyGoal, onClick = { onOpenStats(activeProfile.id) })
 
             Spacer(Modifier.height(96.dp))
         }
@@ -240,18 +247,17 @@ fun HomeScreen(
             }
             when (sheet) {
                 HomeSheet.DUE -> DueSheet(
-                    due = stats.dueCount,
+                    today = stats.dueToday,
+                    daily = stats.dailyReview,
                     common = common,
-                    onStart = { limit ->
-                        start(SessionConfig.Due(direction, limit, System.currentTimeMillis(), quiz))
-                    },
+                    onStart = { start(SessionConfig.Due(direction, stats.dueToday, System.currentTimeMillis(), quiz)) },
                 )
                 HomeSheet.NEW_WORDS -> NewWordsSheet(
                     newCount = stats.newCount,
                     common = common,
                     batchSize = batchSize,
                     onBatchSize = { batchSize = it },
-                    onStart = { shuffle ->
+                    onStart = { shuffle, fromEnd ->
                         start(
                             SessionConfig.NewWords(
                                 direction = direction,
@@ -259,6 +265,7 @@ fun HomeScreen(
                                 shuffle = shuffle,
                                 seed = System.currentTimeMillis(),
                                 quiz = quiz,
+                                fromEnd = fromEnd,
                             ),
                         )
                     },
@@ -617,24 +624,15 @@ private fun OptionLabel(text: String) {
     )
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun DueSheet(due: Int, common: @Composable () -> Unit, onStart: (limit: Int) -> Unit) {
-    var limit by rememberSaveable { mutableStateOf(20) }
+private fun DueSheet(today: Int, daily: Int, common: @Composable () -> Unit, onStart: () -> Unit) {
     SheetBody(
         "На сегодня",
-        "Слова, которые пора повторить, чтобы не забылись: $due. " +
-            "Верный ответ откладывает слово надолго, ошибка — возвращает на завтра.",
+        "$today ${wordsLabel(today)} — случайные из тех, что пора повторить. Каждый день не больше $daily " +
+            "(меняется в настройках). Верный ответ откладывает слово надолго, ошибка — возвращает на завтра.",
     ) {
         common()
-        OptionLabel("Сколько за раз")
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(20, 50).filter { it < due }.forEach { n ->
-                FilterChip(selected = limit == n, onClick = { limit = n }, label = { Text("$n") })
-            }
-            FilterChip(selected = limit >= due, onClick = { limit = Int.MAX_VALUE }, label = { Text("Все ($due)") })
-        }
-        StartButton("Начать") { onStart(limit) }
+        StartButton("Начать") { onStart() }
     }
 }
 
@@ -645,9 +643,10 @@ private fun NewWordsSheet(
     common: @Composable () -> Unit,
     batchSize: Int,
     onBatchSize: (Int) -> Unit,
-    onStart: (shuffle: Boolean) -> Unit,
+    onStart: (shuffle: Boolean, fromEnd: Boolean) -> Unit,
 ) {
     var custom by rememberSaveable { mutableStateOf(batchSize !in BATCH_SIZES) }
+    var fromEnd by rememberSaveable { mutableStateOf(false) }
     // Shuffled by default: in addition order neighbouring words cue each other.
     var shuffle by rememberSaveable { mutableStateOf(true) }
     var customText by rememberSaveable { mutableStateOf(if (custom) batchSize.toString() else "") }
@@ -671,8 +670,13 @@ private fun NewWordsSheet(
                 it.toIntOrNull()?.takeIf { n -> n > 0 }?.let(onBatchSize)
             }
         }
+        OptionLabel("Какие слова")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = !fromEnd, onClick = { fromEnd = false }, label = { Text("Добавленные раньше") })
+            FilterChip(selected = fromEnd, onClick = { fromEnd = true }, label = { Text("Последние добавленные") })
+        }
         OrderPicker(shuffle) { shuffle = it }
-        StartButton("Начать изучение") { onStart(shuffle) }
+        StartButton("Начать изучение") { onStart(shuffle, fromEnd) }
     }
 }
 
@@ -862,4 +866,21 @@ private fun NumberField(label: String, value: String, onChange: (String) -> Unit
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         modifier = Modifier.fillMaxWidth(),
     )
+}
+
+/** The study calendar, GitHub-style, right on Home; a tap opens the full statistics. */
+@Composable
+private fun CalendarPreview(stats: HomeStats, goal: Int, onClick: () -> Unit) {
+    if (stats.calendar.isEmpty()) return
+    Card(
+        onClick = onClick,
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Календарь занятий", style = MaterialTheme.typography.titleMedium)
+            CalendarHeatmap(stats.calendar, goal, onClick = onClick)
+        }
+    }
 }

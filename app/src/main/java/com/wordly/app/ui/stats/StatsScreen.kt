@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -54,7 +55,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 private val DAY_FORMAT = DateTimeFormatter.ofPattern("d MMMM", Locale("ru"))
-private val MONTH_FORMAT = DateTimeFormatter.ofPattern("LLL", Locale("ru"))
+private val MONTHS = listOf("янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -151,21 +152,27 @@ private fun shade(level: Int): Color {
     return if (level == 0) track else lerp(surface, ink, 0.25f + 0.25f * (level - 1))
 }
 
+/**
+ * GitHub-style grid: a column per week (Monday on top), a cell per day. With [onClick] (the
+ * preview on Home) a tap anywhere opens the full statistics instead of picking a day.
+ */
 @Composable
-private fun CalendarHeatmap(weeks: List<List<StudyStats.CalendarDay>>, goal: Int) {
+internal fun CalendarHeatmap(weeks: List<List<StudyStats.CalendarDay>>, goal: Int, onClick: (() -> Unit)? = null) {
     var selected by remember { mutableStateOf<StudyStats.CalendarDay?>(null) }
     val colors = (0..4).map { shade(it) }
     val ring = MaterialTheme.colorScheme.onSurface
     if (weeks.isEmpty()) return
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        MonthLabels(weeks)
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(weeks.size / 7f)
                 .semantics { contentDescription = "Календарь занятий за ${weeks.size} недель" }
-                .pointerInput(weeks) {
+                .pointerInput(weeks, onClick) {
                     detectTapGestures { pos ->
+                        if (onClick != null) return@detectTapGestures onClick()
                         val cell = size.width / weeks.size.toFloat()
                         val w = (pos.x / cell).toInt()
                         val d = (pos.y / cell).toInt()
@@ -189,7 +196,7 @@ private fun CalendarHeatmap(weeks: List<List<StudyStats.CalendarDay>>, goal: Int
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 selected?.let { "${LocalDate.ofEpochDay(it.epochDay).format(DAY_FORMAT)}: ${cardsLabel(it.cards)}" }
-                    ?: "Нажмите на день",
+                    ?: if (onClick != null) "Вся статистика ›" else "Нажмите на день",
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.weight(1f),
             )
@@ -223,7 +230,7 @@ private fun WeeklyBars(weeks: List<List<StudyStats.CalendarDay>>, totals: List<I
             selected?.let { i ->
                 val start = weeks[i].first().epochDay
                 "Неделя с ${LocalDate.ofEpochDay(start).format(DAY_FORMAT)}: ${cardsLabel(totals[i])}"
-            } ?: "Максимум за неделю: ${cardsLabel(max)}",
+            } ?: if (totals.all { it == 0 }) "Пока нет занятий" else "Максимум за неделю: ${cardsLabel(max)}",
             style = MaterialTheme.typography.bodySmall,
         )
         Canvas(
@@ -251,21 +258,30 @@ private fun WeeklyBars(weeks: List<List<StudyStats.CalendarDay>>, totals: List<I
             }
             drawLine(axis, Offset(0f, size.height), Offset(size.width, size.height), strokeWidth = 1.dp.toPx())
         }
-        // Month under the week where it starts — recessive axis labels.
-        Row(Modifier.fillMaxWidth()) {
-            weeks.forEachIndexed { i, week ->
-                val start = LocalDate.ofEpochDay(week.first().epochDay)
-                val newMonth = i == 0 || LocalDate.ofEpochDay(weeks[i - 1].first().epochDay).month != start.month
-                Box(Modifier.weight(1f)) {
-                    if (newMonth) {
-                        Text(
-                            start.format(MONTH_FORMAT),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            softWrap = false,
-                            modifier = Modifier.width(48.dp),
-                        )
-                    }
+        MonthLabels(weeks)
+    }
+}
+
+/** Month name over/under the week where it starts — recessive axis labels. */
+@Composable
+private fun MonthLabels(weeks: List<List<StudyStats.CalendarDay>>) {
+    val starts = weeks.indices.filter { i ->
+        i == 0 || LocalDate.ofEpochDay(weeks[i - 1].first().epochDay).month !=
+            LocalDate.ofEpochDay(weeks[i].first().epochDay).month
+    }
+    // Like GitHub: a partial first month too close to the next label would collide with it.
+    val shown = starts.filterIndexed { n, i -> starts.getOrNull(n + 1)?.let { it - i >= 3 } ?: true }
+    Row(Modifier.fillMaxWidth()) {
+        weeks.indices.forEach { i ->
+            Box(Modifier.weight(1f)) {
+                if (i in shown) {
+                    Text(
+                        MONTHS[LocalDate.ofEpochDay(weeks[i].first().epochDay).monthValue - 1],
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        softWrap = false,
+                        modifier = Modifier.wrapContentWidth(Alignment.Start, unbounded = true),
+                    )
                 }
             }
         }

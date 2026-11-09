@@ -26,11 +26,16 @@ data class HomeStats(
     val favoritesCount: Int = 0,
     /** Learned words the spaced-repetition schedule says are due now. */
     val dueCount: Int = 0,
+    /** What's left of today's "На сегодня" quota: at most [dailyReview] a day, however many are due. */
+    val dueToday: Int = 0,
+    val dailyReview: Int = 50,
     val hardCount: Int = 0,
     val todayCards: Int = 0,
     val streak: Int = 0,
     /** Longest streak ever — milestone badges stay earned after a break. */
     val bestStreak: Int = 0,
+    /** Cards per day for the calendar preview, weeks as columns (see [StudyStats.calendar]). */
+    val calendar: List<List<StudyStats.CalendarDay>> = emptyList(),
 )
 
 /**
@@ -56,19 +61,26 @@ class HomeViewModel(
             repository.observeWords(profile.id),
             repository.observeBenchmark(profile.id),
             repository.observeStudyDays(profile.id),
-        ) { words, benchmark, days ->
+            settings.dailyReview,
+            settings.dueChanges,
+        ) { words, benchmark, days, dailyReview, _ ->
             val learned = words.count { it.orderIndex <= benchmark }
             val today = LocalDate.now().toEpochDay()
+            val dueCount = Srs.dueCount(words, benchmark, System.currentTimeMillis())
+            val quotaLeft = (dailyReview - settings.dueDone(profile.id, today)).coerceAtLeast(0)
             HomeStats(
                 total = words.size,
                 learned = learned,
                 newCount = words.size - learned,
                 favoritesCount = words.count { it.isFavorite },
-                dueCount = Srs.dueCount(words, benchmark, System.currentTimeMillis()),
+                dueCount = dueCount,
+                dueToday = minOf(dueCount, quotaLeft),
+                dailyReview = dailyReview,
                 hardCount = words.count(LearningEngine::isHard),
                 todayCards = days.firstOrNull { it.epochDay == today }?.cards ?: 0,
                 streak = StudyStats.streak(studied(days), today),
                 bestStreak = StudyStats.longestStreak(studied(days)),
+                calendar = StudyStats.calendar(days.associate { it.epochDay to it.cards }, today, CALENDAR_WEEKS),
             )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeStats())
@@ -90,5 +102,7 @@ class HomeViewModel(
 
     fun setAutoPronounce(enabled: Boolean) = settings.setAutoPronounce(enabled)
 }
+
+private const val CALENDAR_WEEKS = 17
 
 private fun studied(days: List<StudyDay>): Set<Long> = days.filter { it.cards > 0 }.map { it.epochDay }.toSet()

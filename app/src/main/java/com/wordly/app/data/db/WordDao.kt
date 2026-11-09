@@ -61,10 +61,6 @@ interface WordDao {
     @Delete
     suspend fun deleteAll(words: List<Word>)
 
-    /** Puts back rows removed by [deleteAll] with their original ids (undo). */
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun restore(words: List<Word>)
-
     @Query("DELETE FROM words WHERE profileId = :profileId")
     suspend fun deleteAll(profileId: Long)
 }

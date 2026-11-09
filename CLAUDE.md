@@ -55,7 +55,8 @@ core learning behavior is unit-testable without Robolectric/instrumentation
 - `learnedSlice(all, benchmark, scope)` — the review slice, narrowed by a `ReviewScope`
   (`domain/model/ReviewScope.kt`): `All`, `Window(count, fromStart)` (last/first N), or
   `Range(from, to)` (1-indexed inclusive positions among learned words, clamped to bounds).
-- `newBatch(all, benchmark, batchSize)` — the next batch to learn, oldest-first.
+- `newBatch(all, benchmark, batchSize, fromEnd)` — the next batch to learn, oldest-first (or the
+  newest new words with `fromEnd`).
 - `orderSession(slice, shuffle, seed)` — presentation order (seeded shuffle or addition order).
 - `nextBenchmark(batch, current)` — the benchmark after a confirmed batch.
 - `normalize`/`isDuplicate` — duplicate-word detection (trim + lowercase + collapse whitespace).
@@ -90,17 +91,21 @@ again. Session progress (card ids, index, answers) is kept in `SavedStateHandle`
   notification — the benchmark is untouched.
 - **NewWords** (`SessionConfig.NewWords`): the next batch after the benchmark. On finishing,
   the UI lists the batch with checkboxes; the ticked words become learned via
-  `WordRepository.commitBatch` → `LearningEngine.partialCommit`, the rest stay first in line.
+  `WordRepository.commitBatch` → `LearningEngine.partialCommit`, run over the whole new-word queue
+  (so a `fromEnd` batch moves in front of older new words); the rest stay first in line.
   "Пройти пачку заново" restarts the same batch with the benchmark untouched.
 - Any finished round can be re-run in the opposite direction (`SessionViewModel.repeatReversed`,
   re-shuffled, schedule not touched twice); a card's pencil opens the normal edit screen and
   `refreshCards()` re-reads the words on return.
-- **Favorites**, **Due** (`Srs.dueSlice`, "На сегодня") and **Hard** (`hardSlice`) — like
+- **Due** ("На сегодня", `Srs.dailySlice`): a fixed daily quota (`AppSettings.dailyReview`, default
+  50) of random due words; first answers are counted per day in `AppSettings.dueDone`, so Home
+  shows what's left of the quota, not the whole backlog.
+- **Favorites**, **Due** and **Hard** (`hardSlice`) — like
   Review, they never move the benchmark.
 
 `SessionConfig` is serialized into primitive nav-route query params by `ui/nav/Routes.kt`
 (`session?mode=...&dir=...&quiz=...&shuffle=...&scopeType=...&scopeCount=...&scopeFromStart=...`
-`&scopeFrom=...&scopeTo=...&batch=...&seed=...` — `ReviewScope` collapses to
+`&scopeFrom=...&scopeTo=...&batch=...&seed=...&fromEnd=...` — `ReviewScope` collapses to
 `scopeType ∈ {all, window, range}` plus whichever of the other fields that type uses) and
 reconstructed from `SavedStateHandle` in `SessionViewModel`'s `decodeScope()` — there is no
 shared/parcelable nav arg type. If you add a new session parameter, it needs updating in

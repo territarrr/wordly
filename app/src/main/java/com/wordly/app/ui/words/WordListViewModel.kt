@@ -40,18 +40,8 @@ class WordListViewModel(
 
     fun pronounce(word: Word) = pronouncer.pronounce(word, profile.ttsLanguageTag)
 
-    /** Last batch removed by [delete], kept so the snackbar's "Отменить" can put it back. */
-    private var lastDeleted: List<Word> = emptyList()
-
     fun delete(words: List<Word>) {
-        lastDeleted = words
         viewModelScope.launch { repository.deleteWords(words) }
-    }
-
-    fun undoDelete() {
-        val words = lastDeleted
-        lastDeleted = emptyList()
-        viewModelScope.launch { repository.restoreWords(words) }
     }
 
     fun toggleFavorite(word: Word) =

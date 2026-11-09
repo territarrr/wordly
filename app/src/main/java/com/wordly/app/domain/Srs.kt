@@ -52,6 +52,16 @@ object Srs {
             .take(limit.coerceAtLeast(0))
             .toList()
 
+    /**
+     * The day's "На сегодня" cards: [limit] words picked at random (from [seed]) among those due,
+     * so the daily amount stays fixed however large the backlog grows.
+     */
+    fun dailySlice(all: List<Word>, benchmark: Long, now: Long, limit: Int, seed: Long): List<Word> =
+        all.filter { it.orderIndex <= benchmark && isDue(it, now) }
+            .sortedBy { it.id }
+            .shuffled(kotlin.random.Random(seed))
+            .take(limit.coerceAtLeast(0))
+
     fun dueCount(all: List<Word>, benchmark: Long, now: Long): Int =
         all.count { it.orderIndex <= benchmark && isDue(it, now) }
 }

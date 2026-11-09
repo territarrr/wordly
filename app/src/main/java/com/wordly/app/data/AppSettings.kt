@@ -28,6 +28,14 @@ class AppSettings(context: Context) {
     /** Cards per day shown as the goal on Home. */
     val dailyGoal: StateFlow<Int> = _dailyGoal.asStateFlow()
 
+    private val _dailyReview = MutableStateFlow(prefs.getInt(KEY_DAILY_REVIEW, 50))
+    /** "На сегодня" quota: how many due words to review per day at most, picked at random. */
+    val dailyReview: StateFlow<Int> = _dailyReview.asStateFlow()
+
+    private val _dueChanges = MutableStateFlow(0)
+    /** Ticks whenever a "На сегодня" answer is counted or taken back — for screens showing what's left. */
+    val dueChanges: StateFlow<Int> = _dueChanges.asStateFlow()
+
     private val _autoPronounce = MutableStateFlow(prefs.getBoolean(KEY_AUTO_PRONOUNCE, false))
     /** Speak the foreign word automatically when its side of the card appears. */
     val autoPronounce: StateFlow<Boolean> = _autoPronounce.asStateFlow()
@@ -55,6 +63,25 @@ class AppSettings(context: Context) {
     fun setDailyGoal(goal: Int) {
         _dailyGoal.value = goal
         prefs.edit().putInt(KEY_GOAL, goal).apply()
+    }
+
+    fun setDailyReview(count: Int) {
+        _dailyReview.value = count
+        prefs.edit().putInt(KEY_DAILY_REVIEW, count).apply()
+    }
+
+    /** "На сегодня" words already answered in [profileId] on [epochDay] (stored as "day:count"). */
+    fun dueDone(profileId: Long, epochDay: Long): Int {
+        val (day, count) = prefs.getString("$KEY_DUE_DONE$profileId", null)?.split(':')
+            ?.takeIf { it.size == 2 } ?: return 0
+        return if (day.toLongOrNull() == epochDay) count.toIntOrNull() ?: 0 else 0
+    }
+
+    /** Counts one "На сегодня" answer (or, with -1, takes one back) on [epochDay]. */
+    fun addDueDone(profileId: Long, epochDay: Long, delta: Int) {
+        val count = (dueDone(profileId, epochDay) + delta).coerceAtLeast(0)
+        prefs.edit().putString("$KEY_DUE_DONE$profileId", "$epochDay:$count").apply()
+        _dueChanges.value++
     }
 
     fun setAutoPronounce(enabled: Boolean) {
@@ -87,6 +114,8 @@ class AppSettings(context: Context) {
         const val KEY_THEME = "theme_mode"
         const val KEY_BATCH = "default_batch"
         const val KEY_GOAL = "daily_goal"
+        const val KEY_DAILY_REVIEW = "daily_review"
+        const val KEY_DUE_DONE = "due_done_"
         const val KEY_AUTO_PRONOUNCE = "auto_pronounce"
         const val KEY_REMINDER_ON = "reminder_enabled"
         const val KEY_REMINDER_HOUR = "reminder_hour"

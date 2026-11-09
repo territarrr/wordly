@@ -63,6 +63,7 @@ fun SettingsScreen(
     val defaultProfile by viewModel.defaultProfile.collectAsStateWithLifecycle()
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
     val defaultBatch by viewModel.defaultBatch.collectAsStateWithLifecycle()
+    val dailyReview by viewModel.dailyReview.collectAsStateWithLifecycle()
     val dailyGoal by viewModel.dailyGoal.collectAsStateWithLifecycle()
     val autoPronounce by viewModel.autoPronounce.collectAsStateWithLifecycle()
     val reminder by viewModel.reminder.collectAsStateWithLifecycle()
@@ -150,6 +151,11 @@ fun SettingsScreen(
             Section("Размер пачки новых слов", "Сколько слов предлагать по умолчанию в «Учить новые».") {
                 SIZES.forEach { n ->
                     FilterChip(selected = defaultBatch == n, onClick = { viewModel.setDefaultBatch(n) }, label = { Text("$n") })
+                }
+            }
+            Section("Повторений в день", "Сколько слов в «На сегодня»: каждый день столько случайных из тех, что пора повторить.") {
+                SIZES.forEach { n ->
+                    FilterChip(selected = dailyReview == n, onClick = { viewModel.setDailyReview(n) }, label = { Text("$n") })
                 }
             }
             Section("Цель на день", "Сколько карточек в день считать выполненной нормой.") {
